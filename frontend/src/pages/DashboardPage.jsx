@@ -38,6 +38,7 @@ import {
   deleteDepartment,
   deleteDesignation,
   deleteEmployee,
+  deleteSpecialPayEntry,
   deleteWageCode,
   finalizeArrearBill,
   finalizeBudgetTransaction,
@@ -57,14 +58,28 @@ import {
   getEmployees,
   getDepartments,
   getDesignations,
+  getAllowancesExport,
   getWageCodes,
   getNextArrearDocumentNo,
   getNextBudgetDocumentNo,
   getDocumentByNumber,
+  getProofReport,
+  getPayrollBudgetRequirement,
+  getPayrollReport,
+  getPayrollRuns,
+  getSinglePayrollPayslip,
+  getReportModule,
+  getReportScheduleDefaults,
+  getSpecialPay,
+  getTaxScheduleExport,
+  printCheque,
+  processPayroll,
+  reopenPayrollRun,
   reopenArrearBill,
   reopenBudgetTransaction,
   resetSoftwareData,
   saveEmployeeAllowances,
+  saveSpecialPay,
   updateAccountCode,
   updateArrearBill,
   updateBank,
@@ -2530,6 +2545,281 @@ function PayAllowancesEntry() {
   );
 }
 
+const emptySpecialPayRow = (index = 0) => ({
+  id: null,
+  srNo: index + 1,
+  wageCode: "",
+  description: "",
+  amount: ""
+});
+
+function SpecialPayEdit() {
+  const today = new Date();
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [period, setPeriod] = useState({ month: String(today.getMonth() + 1), year: String(today.getFullYear()) });
+  const [employee, setEmployee] = useState(null);
+  const [rows, setRows] = useState([emptySpecialPayRow()]);
+  const [wageCodes, setWageCodes] = useState([]);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+  useEffect(() => {
+    getWageCodes()
+      .then(setWageCodes)
+      .catch((error) => setStatus({ type: "error", message: error.message }));
+  }, []);
+
+  const loadSpecialPay = async () => {
+    if (!employeeCode.trim() || !period.month || !period.year) {
+      setStatus({ type: "error", message: "Employee code, month, and year are required." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await getSpecialPay(employeeCode.trim(), period);
+      setEmployee(result.data.employee);
+      setRows(result.data.entries.length ? result.data.entries.map((entry, index) => ({
+        id: entry.id,
+        srNo: index + 1,
+        wageCode: entry.wageCode,
+        description: entry.description || "",
+        amount: entry.amount
+      })) : [emptySpecialPayRow()]);
+      setStatus({ type: "success", message: "Special pay loaded." });
+    } catch (error) {
+      setEmployee(null);
+      setRows([emptySpecialPayRow()]);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateRow = (rowIndex, field, value) => {
+    setRows((current) => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const next = { ...row, [field]: value };
+      if (field === "wageCode") {
+        const matched = wageCodes.find((wageCode) => wageCode.code === value);
+        next.description = matched ? matched.description : row.description;
+      }
+      return next;
+    }));
+  };
+
+  const addRow = () => setRows((current) => [...current, emptySpecialPayRow(current.length)]);
+
+  const removeRow = async (rowIndex) => {
+    const row = rows[rowIndex];
+
+    if (row.id) {
+      try {
+        await deleteSpecialPayEntry(row.id);
+        setStatus({ type: "success", message: "Special pay row deleted." });
+      } catch (error) {
+        setStatus({ type: "error", message: error.message });
+        return;
+      }
+    }
+
+    setRows((current) => {
+      const next = current.filter((_row, index) => index !== rowIndex).map((item, index) => ({ ...item, srNo: index + 1 }));
+      return next.length ? next : [emptySpecialPayRow()];
+    });
+  };
+
+  const saveRows = async () => {
+    if (!employee) {
+      setStatus({ type: "error", message: "Load employee before saving special pay." });
+      return;
+    }
+
+    const cleanRows = rows.filter((row) => row.wageCode || row.amount);
+    const invalidRow = cleanRows.find((row) => !row.wageCode || Number(row.amount || 0) === 0);
+
+    if (invalidRow) {
+      setStatus({ type: "error", message: "Each row needs code and non-zero amount." });
+      return;
+    }
+
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await saveSpecialPay({
+        employeeCode: employee.employeeCode,
+        month: period.month,
+        year: period.year,
+        entries: cleanRows
+      });
+      setRows(result.data.entries.length ? result.data.entries.map((entry, index) => ({
+        id: entry.id,
+        srNo: index + 1,
+        wageCode: entry.wageCode,
+        description: entry.description || "",
+        amount: entry.amount
+      })) : [emptySpecialPayRow()]);
+      setStatus({ type: "success", message: result.message });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="allowance-entry-panel special-pay-panel" aria-label="Special pay edit">
+      <div className="allowance-title">Special Pay Edit</div>
+      <div className="allowance-lookup">
+        <label><span>Employee Code</span><input value={employeeCode} onChange={(event) => setEmployeeCode(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); loadSpecialPay(); } }} /></label>
+        <label><span>Pay Month</span><input type="number" min="1" max="12" value={period.month} onChange={(event) => setPeriod((current) => ({ ...current, month: event.target.value }))} /></label>
+        <label><span>Pay Year</span><input type="number" value={period.year} onChange={(event) => setPeriod((current) => ({ ...current, year: event.target.value }))} /></label>
+        <button type="button" onClick={loadSpecialPay} disabled={loading}>{loading ? "Loading..." : "Load"}</button>
+      </div>
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      <div className="allowance-details">
+        <label><span>Name</span><input readOnly value={employee?.name || ""} /></label>
+        <label><span>Place Of Posting</span><input readOnly value={employee?.placeOfPosting || ""} /></label>
+        <label><span>Service Type</span><input readOnly value={employee?.serviceType || ""} /></label>
+        <label><span>Designation</span><input readOnly value={employee?.designation || ""} /></label>
+        <label><span>BPS</span><input readOnly value={employee?.bps || ""} /></label>
+        <label><span>Department</span><input readOnly value={employee?.department || ""} /></label>
+        <label><span>Gaz/NG</span><input readOnly value={employee?.gazNg || ""} /></label>
+      </div>
+      <div className="allowance-table-wrap">
+        <table className="allowance-table">
+          <thead><tr><th>Sr #</th><th>Code</th><th>Description</th><th>Amount</th><th>Delete</th></tr></thead>
+          <tbody>{rows.map((row, index) => (
+            <tr key={`${row.id || "new"}-${index}`}>
+              <td>{index + 1}</td>
+              <td><input list="special-pay-wage-codes" value={row.wageCode} onChange={(event) => updateRow(index, "wageCode", event.target.value)} /></td>
+              <td><input value={row.description || ""} onChange={(event) => updateRow(index, "description", event.target.value)} /></td>
+              <td><input type="number" step="0.01" value={row.amount} onChange={(event) => updateRow(index, "amount", event.target.value)} /></td>
+              <td><button className="allowance-delete-button" type="button" onClick={() => removeRow(index)}><Trash2 size={16} /></button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+        <datalist id="special-pay-wage-codes">
+          {wageCodes.map((wageCode) => <option key={wageCode.code} value={wageCode.code}>{wageCode.description}</option>)}
+        </datalist>
+      </div>
+      <div className="allowance-actions">
+        <strong>Total: PKR {total.toLocaleString()}</strong>
+        <button type="button" onClick={addRow}>Add Row</button>
+        <button type="button" onClick={saveRows} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+      </div>
+    </section>
+  );
+}
+
+function ChequePrintPage({ bankType }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ chequeDate: today, payeeName: "", amount: "" });
+  const [cheque, setCheque] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const title = bankType === "BOP" ? "Cheque Printing BOP" : "Cheque Printing SDA";
+
+  const submit = async () => {
+    if (!form.chequeDate || !form.payeeName || Number(form.amount || 0) <= 0) {
+      setStatus({ type: "error", message: "Date, payee name, and amount are required." });
+      return;
+    }
+
+    try {
+      const result = await printCheque({ ...form, bankType });
+      setCheque(result.data);
+      setStatus({ type: "success", message: result.message });
+      window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel cheque-print-panel">
+      <div className="form-title-row"><div><p>Transactions</p><h2>{title}</h2></div></div>
+      <div className="report-filter-panel no-print">
+        <label><span>Date</span><input type="date" value={form.chequeDate} onChange={(event) => setForm((current) => ({ ...current, chequeDate: event.target.value }))} /></label>
+        <label><span>Payee Name</span><input value={form.payeeName} onChange={(event) => setForm((current) => ({ ...current, payeeName: event.target.value }))} /></label>
+        <label><span>Amount</span><input type="number" step="0.01" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+        <div className="report-filter-actions"><button type="button" onClick={submit}>Print Cheque</button><button type="button" onClick={() => { setCheque(null); setForm({ chequeDate: today, payeeName: "", amount: "" }); }}>Go Back</button></div>
+      </div>
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      {cheque ? (
+        <div className="cheque-print-layout">
+          <div className="cheque-bank">{cheque.bankType === "BOP" ? "Bank of Punjab" : "SDA"}</div>
+          <div className="cheque-date">Date: {cheque.chequeDate}</div>
+          <div className="cheque-payee">Pay to: <strong>{cheque.payeeName}</strong></div>
+          <div className="cheque-amount">PKR {formatCurrency(cheque.amount)}</div>
+          <div className="cheque-no">Cheque #: {cheque.chequeNo}</div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function MonthRangeExportPage({ type }) {
+  const today = new Date();
+  const [filters, setFilters] = useState({ fromMonth: "1", fromYear: String(today.getFullYear()), toMonth: String(today.getMonth() + 1), toYear: String(today.getFullYear()), outputSelection: "screen" });
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const isTax = type === "tax";
+  const title = isTax ? "Income Tax Schedule" : "Complete Allowances";
+
+  const loadReport = async (excel = false) => {
+    try {
+      const result = isTax ? await getTaxScheduleExport(filters) : await getAllowancesExport(filters);
+      setReport(result.data);
+      setStatus({ type: result.data.rows.length ? "success" : "error", message: result.data.rows.length ? "Report loaded." : "No records found." });
+      if (excel) {
+        const rows = isTax
+          ? result.data.rows.map((row) => ({ "Employee Code": row.employeeCode, Name: row.name, "Tax Amount": row.taxAmount, Month: row.month, Year: row.year }))
+          : result.data.rows.map((row) => ({ "Employee Code": row.employeeCode, Name: row.name, "Wage Code": row.wageCode, Description: row.description, Amount: row.amount, "Effective Date": row.effectiveDate }));
+        exportRowsToExcel(rows, `${isTax ? "income-tax-schedule" : "complete-allowances"}-${filters.fromMonth}-${filters.fromYear}-to-${filters.toMonth}-${filters.toYear}.xlsx`);
+      }
+      if (!excel && filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <div className="form-title-row"><div><p>Transactions</p><h2>{title}</h2></div></div>
+      <div className="report-filter-panel no-print">
+        <label><span>From Month</span><input type="number" min="1" max="12" value={filters.fromMonth} onChange={(event) => setFilters((current) => ({ ...current, fromMonth: event.target.value }))} /></label>
+        <label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></label>
+        <label><span>To Month</span><input type="number" min="1" max="12" value={filters.toMonth} onChange={(event) => setFilters((current) => ({ ...current, toMonth: event.target.value }))} /></label>
+        <label><span>To Year</span><input type="number" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></label>
+        <fieldset><legend>Output</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Printer</label></fieldset>
+        <div className="report-filter-actions"><button type="button" onClick={() => loadReport(false)}>OK</button><button type="button" onClick={() => loadReport(true)}>Excel Export</button></div>
+      </div>
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      {report ? (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title={title} filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}`} />
+          <table className="print-report-table">
+            <thead>{isTax ? <tr><th>Employee Code</th><th>Name</th><th>Tax Amount</th><th>Month</th><th>Year</th></tr> : <tr><th>Employee Code</th><th>Name</th><th>Wage Code</th><th>Description</th><th>Amount</th><th>Effective Date</th></tr>}</thead>
+            <tbody>
+              {(report.rows || []).map((row, index) => isTax ? (
+                <tr key={index}><td>{row.employeeCode}</td><td>{row.name}</td><td className="amount-cell">{formatCurrency(row.taxAmount)}</td><td>{row.month}</td><td>{row.year}</td></tr>
+              ) : (
+                <tr key={index}><td>{row.employeeCode}</td><td>{row.name}</td><td>{row.wageCode}</td><td>{row.description}</td><td className="amount-cell">{formatCurrency(row.amount)}</td><td>{row.effectiveDate}</td></tr>
+              ))}
+              <tr className="report-total-row"><td colSpan={isTax ? 2 : 4}>Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td><td colSpan={isTax ? 2 : 1}></td></tr>
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 const emptyArrearRow = (index = 0) => ({
   srNo: index + 1,
   periodNo: index + 1,
@@ -4166,6 +4456,593 @@ function BudgetExpenseEditPage() {
   );
 }
 
+function ProofReportFilter({ title, children, filters, setFilters, onRun, onCancel, loading }) {
+  const updateFilter = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  return (
+    <>
+      <div className="form-title-row">
+        <div>
+          <p>Proofs</p>
+          <h2>{title}</h2>
+        </div>
+      </div>
+      <div className="report-filter-panel proof-filter-panel no-print">
+        <label>
+          <span>Dept Code</span>
+          <input type="number" name="deptCode" value={filters.deptCode} onChange={updateFilter} />
+        </label>
+        <label>
+          <span>Gazzatted/Non Gaz</span>
+          <select name="gazNg" value={filters.gazNg} onChange={updateFilter}>
+            <option value="A">All</option>
+            <option value="G">Gazetted</option>
+            <option value="N">Non-Gazetted</option>
+          </select>
+        </label>
+        <label>
+          <span>Report For</span>
+          <select name="reportFor" value={filters.reportFor} onChange={updateFilter}>
+            <option value="All">All</option>
+            <option value="Regular">Regular</option>
+            <option value="Contract">Contract</option>
+            <option value="Adhoc">Adhoc</option>
+          </select>
+        </label>
+        {children}
+        <fieldset>
+          <legend>Output Selection</legend>
+          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={updateFilter} /> Screen</label>
+          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={updateFilter} /> Printer</label>
+        </fieldset>
+        <div className="report-filter-actions">
+          <button type="button" onClick={onRun} disabled={loading}>{loading ? "Loading..." : "OK"}</button>
+          <button type="button" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function proofDefaultFilters(extra = {}) {
+  return {
+    deptCode: "999",
+    gazNg: "A",
+    reportFor: "All",
+    outputSelection: "screen",
+    ...extra
+  };
+}
+
+function ProofReportShell({ title, endpoint, children, extraDefaults = {}, renderExtraFilters }) {
+  const [filters, setFilters] = useState(proofDefaultFilters(extraDefaults));
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const runReport = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await getProofReport(endpoint, filters);
+      setReport(result.data);
+      if (filters.outputSelection === "printer") {
+        window.setTimeout(() => window.print(), 150);
+      }
+    } catch (error) {
+      setReport(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancel = () => {
+    setFilters(proofDefaultFilters(extraDefaults));
+    setReport(null);
+    setStatus({ type: "", message: "" });
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <ProofReportFilter title={title} filters={filters} setFilters={setFilters} onRun={runReport} onCancel={cancel} loading={loading}>
+        {renderExtraFilters ? renderExtraFilters(filters, setFilters) : null}
+      </ProofReportFilter>
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {report ? children(report, filters) : null}
+    </section>
+  );
+}
+
+function SalaryProofListPage() {
+  return (
+    <ProofReportShell
+      title="Salary Proof List"
+      endpoint="salary-proof-list"
+      extraDefaults={{ bps: "99" }}
+      renderExtraFilters={(filters, setFilters) => (
+        <label>
+          <span>BPS</span>
+          <input type="number" value={filters.bps} onChange={(event) => setFilters((current) => ({ ...current, bps: event.target.value }))} />
+        </label>
+      )}
+    >
+      {(report, filters) => (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Salary Proof List" filterSummary={`Dept: ${filters.deptCode} | Gaz/NG: ${filters.gazNg} | BPS: ${filters.bps}`} />
+          <table className="print-report-table">
+            <thead><tr><th>Employee Code</th><th>Name</th><th>Dept</th><th>Designation</th><th>BPS</th><th>Gaz/NG</th><th>Basic Pay</th><th>Gross</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+            <tbody>
+              {(report.rows || []).map((row) => (
+                <tr key={row.employee_code}><td>{row.employee_code}</td><td>{row.name}</td><td>{row.department}</td><td>{row.designation}</td><td>{row.bps}</td><td>{row.gaz_ng}</td><td className="amount-cell">{formatCurrency(row.basic_pay)}</td><td className="amount-cell">{formatCurrency(row.gross)}</td><td className="amount-cell">{formatCurrency(row.deductions)}</td><td className="amount-cell">{formatCurrency(row.net_pay)}</td></tr>
+              ))}
+              <tr className="report-total-row"><td colSpan="6">Grand Total</td><td className="amount-cell">{formatCurrency(report.totals?.basic_pay)}</td><td className="amount-cell">{formatCurrency(report.totals?.gross)}</td><td className="amount-cell">{formatCurrency(report.totals?.deductions)}</td><td className="amount-cell">{formatCurrency(report.totals?.net_pay)}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ProofReportShell>
+  );
+}
+
+function SalaryProofList2Page() {
+  return (
+    <ProofReportShell title="Salary Proof List 2" endpoint="salary-proof-list-2">
+      {(report, filters) => (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Salary Proof List 2" filterSummary={`Dept: ${filters.deptCode} | Gaz/NG: ${filters.gazNg}`} />
+          {(report.employees || []).map((employee) => (
+            <section className="print-employee-section" key={employee.employee_code}>
+              <div className="print-employee-head"><strong>{employee.employee_code} - {employee.name}</strong><span>{employee.department}</span><span>{employee.designation}</span><span>BPS {employee.bps}</span><span>{employee.gaz_ng}</span></div>
+              <table className="print-report-table"><thead><tr><th>Code</th><th>Description</th><th>Amount</th></tr></thead><tbody>{employee.items.map((item, index) => <tr key={index}><td>{item.code}</td><td>{item.description}</td><td className="amount-cell">{formatCurrency(item.amount)}</td></tr>)}</tbody></table>
+              <div className="print-subtotal-row"><span>Pay: PKR {formatCurrency(employee.subtotal.pay)}</span><span>Deductions: PKR {formatCurrency(employee.subtotal.deductions)}</span><strong>Net: PKR {formatCurrency(employee.subtotal.net)}</strong></div>
+            </section>
+          ))}
+          <div className="print-grand-total-row"><span>Grand Total</span><strong>Pay {formatCurrency(report.grandTotal?.pay)} | Ded {formatCurrency(report.grandTotal?.deductions)} | Net {formatCurrency(report.grandTotal?.net)}</strong></div>
+        </div>
+      )}
+    </ProofReportShell>
+  );
+}
+
+function AllowanceProofListPage() {
+  return (
+    <ProofReportShell title="Allowance Proof List" endpoint="allowance-proof-list">
+      {(report, filters) => (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Allowance Proof List" filterSummary={`Dept: ${filters.deptCode} | Gaz/NG: ${filters.gazNg}`} />
+          {(report.employees || []).map((employee) => (
+            <section className="print-employee-section" key={employee.employee_code}>
+              <div className="print-employee-head"><strong>{employee.employee_code} - {employee.name}</strong></div>
+              <table className="print-report-table"><thead><tr><th>Code</th><th>Description</th><th>Amount</th><th>Valid Upto</th></tr></thead><tbody>{employee.items.map((item, index) => <tr key={index}><td>{item.code}</td><td>{item.description}</td><td className="amount-cell">{formatCurrency(item.amount)}</td><td>{item.valid_upto || "-"}</td></tr>)}</tbody></table>
+              <div className="print-subtotal-row"><span>Employee Subtotal</span><strong>PKR {formatCurrency(employee.subtotal)}</strong></div>
+            </section>
+          ))}
+          <div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.grandTotal)}</strong></div>
+        </div>
+      )}
+    </ProofReportShell>
+  );
+}
+
+function InactiveProofListPage() {
+  const today = new Date();
+  return (
+    <ProofReportShell
+      title="Inactive Proof List"
+      endpoint="inactive-proof-list"
+      extraDefaults={{ month: String(today.getMonth() + 1), year: String(today.getFullYear()) }}
+      renderExtraFilters={(filters, setFilters) => (
+        <>
+          <label><span>Current Month</span><input type="number" min="1" max="12" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} /></label>
+          <label><span>Current Year</span><input type="number" value={filters.year} onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value }))} /></label>
+        </>
+      )}
+    >
+      {(report, filters) => (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Inactive Proof List" filterSummary={`Month/Year: ${filters.month}/${filters.year}`} />
+          <table className="print-report-table"><thead><tr><th>Employee Code</th><th>Name</th><th>Dept</th><th>Designation</th><th>Status</th><th>Date Inactive</th></tr></thead><tbody>{(report.rows || []).map((row) => <tr key={row.employee_code}><td>{row.employee_code}</td><td>{row.name}</td><td>{row.department}</td><td>{row.designation}</td><td>{row.status}</td><td>{row.date_inactive || "-"}</td></tr>)}{!report.rows?.length ? <tr><td colSpan="6">No inactive employees found.</td></tr> : null}</tbody></table>
+        </div>
+      )}
+    </ProofReportShell>
+  );
+}
+
+function ScaleAuditProofPrintingPage() {
+  return (
+    <ProofReportShell title="Scale Audit Proof Printing" endpoint="scale-audit-register">
+      {(report, filters) => (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Scale Audit Register" filterSummary={`Dept: ${filters.deptCode} | Gaz/NG: ${filters.gazNg}`} />
+          <table className="print-report-table"><thead><tr><th>Employee Code</th><th>Name</th><th>Dept</th><th>Designation</th><th>Old BPS</th><th>New BPS</th><th>Effective Date</th><th>Changed By</th></tr></thead><tbody>{(report.rows || []).map((row, index) => <tr key={`${row.employee_code}-${index}`}><td>{row.employee_code}</td><td>{row.name}</td><td>{row.department}</td><td>{row.designation}</td><td>{row.old_bps || "-"}</td><td>{row.new_bps}</td><td>{row.effective_date}</td><td>{row.changed_by || "-"}</td></tr>)}{!report.rows?.length ? <tr><td colSpan="8">No scale audit records found.</td></tr> : null}</tbody></table>
+        </div>
+      )}
+    </ProofReportShell>
+  );
+}
+
+function payrollDefaultFilters(extra = {}) {
+  const today = new Date();
+  return {
+    deptCode: "999",
+    gazNg: "A",
+    reportFor: "All",
+    month: String(today.getMonth() + 1),
+    year: String(today.getFullYear()),
+    outputSelection: "screen",
+    ...extra
+  };
+}
+
+function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, allowExcel = false, simple = false }) {
+  const update = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  return (
+    <>
+      <div className="form-title-row"><div><p>Payroll</p><h2>{title}</h2></div></div>
+      <div className="report-filter-panel proof-filter-panel no-print">
+        {!simple ? (
+          <>
+            <label><span>Dept Code</span><input type="number" name="deptCode" value={filters.deptCode} onChange={update} /></label>
+            <label><span>Gazzatted/Non Gaz</span><select name="gazNg" value={filters.gazNg} onChange={update}><option value="A">All</option><option value="G">Gazetted</option><option value="N">Non-Gazetted</option></select></label>
+          </>
+        ) : null}
+        <label><span>Report For</span><select name="reportFor" value={filters.reportFor} onChange={update}><option value="All">All</option><option value="Regular">Regular</option><option value="Contract">Contract</option><option value="Adhoc">Adhoc</option></select></label>
+        <label><span>Month Of Payment</span><input type="number" min="1" max="12" name="month" value={filters.month} onChange={update} /></label>
+        <label><span>Payment Year</span><input type="number" name="year" value={filters.year} onChange={update} /></label>
+        <fieldset>
+          <legend>Output Selection</legend>
+          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={update} /> Screen</label>
+          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={update} /> Printer</label>
+          {allowExcel ? <label><input type="radio" name="outputSelection" value="excel" checked={filters.outputSelection === "excel"} onChange={update} /> Excel</label> : null}
+        </fieldset>
+        <div className="report-filter-actions"><button type="button" onClick={onRun} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={onCancel}>Cancel</button></div>
+      </div>
+    </>
+  );
+}
+
+function exportRowsToExcel(rows, filename) {
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+  XLSX.writeFile(workbook, filename);
+}
+
+function PayrollReportShell({ title, endpoint, children, allowExcel = false, simple = false, extraDefaults = {}, exportRows }) {
+  const [filters, setFilters] = useState(payrollDefaultFilters(extraDefaults));
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const run = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const result = await getPayrollReport(endpoint, filters);
+      setReport(result.data);
+      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "excel" && exportRows) exportRowsToExcel(exportRows(result.data), `${endpoint}-${filters.month}-${filters.year}.xlsx`);
+    } catch (error) {
+      setReport(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancel = () => {
+    setFilters(payrollDefaultFilters(extraDefaults));
+    setReport(null);
+    setStatus({ type: "", message: "" });
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <PayrollFilter title={title} filters={filters} setFilters={setFilters} onRun={run} onCancel={cancel} loading={loading} allowExcel={allowExcel} simple={simple} />
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {report ? children(report, filters) : null}
+    </section>
+  );
+}
+
+function PayrollProcessPage() {
+  const [filters, setFilters] = useState(payrollDefaultFilters());
+  const [result, setResult] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const loadRuns = async () => {
+    const data = await getPayrollRuns(filters);
+    setRuns(data.data || []);
+  };
+
+  const run = async () => {
+    if (!window.confirm(`This will calculate payroll for ${filters.month}/${filters.year}. Continue?`)) return;
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const data = await processPayroll(filters);
+      setResult(data.data);
+      setStatus({ type: "success", message: data.message });
+      await loadRuns();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+      await loadRuns();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reopenFirstRun = async () => {
+    if (!runs.length) return;
+    try {
+      await reopenPayrollRun(runs[0].id);
+      setStatus({ type: "success", message: "Payroll run reopened." });
+      await loadRuns();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <PayrollFilter title="Payroll" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => { setResult(null); setStatus({ type: "", message: "" }); }} loading={loading} />
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {runs.some((runItem) => ["processed", "locked"].includes(runItem.status)) ? <button className="refresh-button no-print" type="button" onClick={reopenFirstRun}>Reopen</button> : null}
+      {result ? (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Payroll Process Summary" filterSummary={`${filters.month}/${filters.year} | Dept ${filters.deptCode}`} />
+          <table className="print-report-table"><thead><tr><th>Employee Code</th><th>Name</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead><tbody>{result.items.map((row) => <tr key={row.employeeCode}><td>{row.employeeCode}</td><td>{row.name}</td><td className="amount-cell">{formatCurrency(row.grossPay)}</td><td className="amount-cell">{formatCurrency(row.totalDeductions)}</td><td className="amount-cell">{formatCurrency(row.netPay)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(result.totals.grossPay)}</td><td className="amount-cell">{formatCurrency(result.totals.totalDeductions)}</td><td className="amount-cell">{formatCurrency(result.totals.netPay)}</td></tr></tbody></table>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function BankSummaryPage() {
+  return <PayrollReportShell title="Bank Summary" endpoint="bank-summary" allowExcel exportRows={(r) => (r.banks || []).flatMap((b) => b.branches.flatMap((br) => br.employees.map((e) => ({ Bank: b.bankName, Branch: br.branchName, Employee: e.employeeCode, Name: e.name, Account: e.accountNo, Net: e.netPay }))))}>{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="Bank Summary" filterSummary={`${filters.month}/${filters.year}`} />{(report.banks || []).map((bank) => <section className="print-employee-section" key={bank.bankName}><div className="print-employee-head"><strong>{bank.bankName}</strong></div>{bank.branches.map((branch) => <section className="nested-print-section print-bill-section" key={branch.branchName}><div className="print-section-head"><strong>{branch.branchName}</strong></div><table className="print-report-table"><thead><tr><th>Employee</th><th>Name</th><th>Account No</th><th>Net Pay</th></tr></thead><tbody>{branch.employees.map((e) => <tr key={e.employeeCode}><td>{e.employeeCode}</td><td>{e.name}</td><td>{e.accountNo}</td><td className="amount-cell">{formatCurrency(e.netPay)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Branch Subtotal</span><strong>PKR {formatCurrency(branch.subtotal)}</strong></div></section>)}</section>)}<div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.grandTotal)}</strong></div></div>}</PayrollReportShell>;
+}
+
+function NonBankSalaryPage() {
+  return <PayrollReportShell title="Non Bank Salary" endpoint="non-bank-salary">{(report, filters) => <FlatPayrollTable title="Non Bank Salary" rows={report.rows || []} filters={filters} total={report.grandTotal} columns={["employeeCode", "name", "department", "designation", "netPay"]} />}</PayrollReportShell>;
+}
+
+function GrandBankSummaryPage() {
+  return <PayrollReportShell title="Grand Bank Summary" endpoint="grand-bank-summary" allowExcel exportRows={(r) => r.banks || []}>{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="Grand Bank Summary" filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr><th>Bank Name</th><th>Total Employees</th><th>Total Amount</th></tr></thead><tbody>{(report.banks || []).map((b) => <tr key={b.bankName}><td>{b.bankName}</td><td>{b.employeeCount}</td><td className="amount-cell">{formatCurrency(b.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div>}</PayrollReportShell>;
+}
+
+function FlatPayrollTable({ title, rows, filters, total, columns }) {
+  return <div className="arrear-report-print-area"><ReportLetterhead title={title} filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.employeeCode}>{columns.map((c) => <td key={c} className={String(c).toLowerCase().includes("pay") || c === "netPay" || c === "grossPay" || c === "totalDeductions" ? "amount-cell" : ""}>{typeof row[c] === "number" || ["grossPay", "totalDeductions", "netPay"].includes(c) ? formatCurrency(row[c]) : row[c]}</td>)}</tr>)}<tr className="report-total-row"><td colSpan={Math.max(columns.length - 1, 1)}>Grand Total</td><td className="amount-cell">{formatCurrency(total)}</td></tr></tbody></table></div>;
+}
+
+function PaymentListPage() {
+  return <PayrollReportShell title="Payment List" endpoint="payment-list">{(report, filters) => <FlatPayrollTable title="Payment List" rows={(report.rows || []).map((r) => ({ ...r, paymentMethod: r.isBankSalary ? "Bank" : "Cash" }))} filters={filters} total={report.totals?.netPay} columns={["employeeCode", "name", "department", "designation", "grossPay", "totalDeductions", "netPay", "paymentMethod"]} />}</PayrollReportShell>;
+}
+
+function ListOfPaymentPage() {
+  return <PayrollReportShell title="List Of Payment" endpoint="list-of-payment">{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="List Of Payment" filterSummary={`${filters.month}/${filters.year}`} />{(report.departments || []).map((dept) => <section className="print-employee-section" key={dept.department}><div className="print-employee-head"><strong>{dept.department}</strong></div><table className="print-report-table"><thead><tr><th>Employee</th><th>Name</th><th>Net Pay</th></tr></thead><tbody>{dept.rows.map((row) => <tr key={row.employeeCode}><td>{row.employeeCode}</td><td>{row.name}</td><td className="amount-cell">{formatCurrency(row.netPay)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Department Subtotal</span><strong>PKR {formatCurrency(dept.subtotal)}</strong></div></section>)}<div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.totals?.netPay)}</strong></div></div>}</PayrollReportShell>;
+}
+
+function PayrollScaleAuditRegisterPage() {
+  return <PayrollReportShell title="Scale Audit Register" endpoint="scale-audit-register" simple>{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="Scale Audit Register" filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr><th>Employee</th><th>Name</th><th>Dept</th><th>Designation</th><th>Old BPS</th><th>New BPS</th><th>Effective Date</th></tr></thead><tbody>{(report.rows || []).map((row, index) => <tr key={index}><td>{row.employeeCode}</td><td>{row.name}</td><td>{row.department}</td><td>{row.designation}</td><td>{row.oldBps || "-"}</td><td>{row.newBps}</td><td>{row.effectiveDate}</td></tr>)}</tbody></table></div>}</PayrollReportShell>;
+}
+
+function BudgetRequirementPage() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [endingDate, setEndingDate] = useState(today);
+  const [outputSelection, setOutputSelection] = useState("screen");
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+
+  const run = async () => {
+    try {
+      const result = await getPayrollBudgetRequirement(endingDate);
+      setReport(result.data);
+      if (outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (outputSelection === "excel") exportRowsToExcel(result.data.rows || [], `budget-requirement-${endingDate}.xlsx`);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Budget Requirement</h2></div></div><div className="report-filter-panel no-print"><label><span>Ending Date</span><input type="date" value={endingDate} onChange={(e) => setEndingDate(e.target.value)} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(e) => setOutputSelection(e.target.value)} /> Screen</label><label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(e) => setOutputSelection(e.target.value)} /> Printer</label><label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(e) => setOutputSelection(e.target.value)} /> Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => { setReport(null); setEndingDate(today); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Budget Requirement" filterSummary={`Ending Date: ${endingDate}`} /><table className="print-report-table"><thead><tr><th>Wage Code</th><th>Description</th><th>Projected Total</th></tr></thead><tbody>{(report.rows || []).map((row) => <tr key={row.wageCode}><td>{row.wageCode}</td><td>{row.description}</td><td className="amount-cell">{formatCurrency(row.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
+}
+
+function PaySlipsPage() {
+  return <PayrollReportShell title="Pay Slips" endpoint="payslips">{(report, filters) => <PayslipView slips={report.slips || []} filters={filters} />}</PayrollReportShell>;
+}
+
+function PayslipView({ slips, filters }) {
+  return <div className="arrear-report-print-area">{slips.map((slip) => <section className="print-bill-section payslip-section" key={slip.employeeCode}><ReportLetterhead title="Pay Slip" filterSummary={`${filters.month}/${filters.year}`} /><div className="print-section-head"><strong>{slip.employeeCode} - {slip.name}</strong><span>{slip.department}</span><span>{slip.designation}</span><span>BPS {slip.bps}</span></div><table className="print-report-table"><thead><tr><th>Code</th><th>Description</th><th>Amount</th></tr></thead><tbody>{(slip.details || []).map((d, i) => <tr key={i}><td>{d.wageCode}</td><td>{d.description}</td><td className="amount-cell">{formatCurrency(d.amount)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Gross {formatCurrency(slip.grossPay)}</span><span>Deductions {formatCurrency(slip.totalDeductions)}</span><strong>Net {formatCurrency(slip.netPay)}</strong></div></section>)}{!slips.length ? <p className="empty-report-note">No pay slips found.</p> : null}</div>;
+}
+
+function SinglePaySlipPage() {
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [filters, setFilters] = useState(payrollDefaultFilters());
+  const [slip, setSlip] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const run = async () => {
+    if (!employeeCode) { setStatus({ type: "error", message: "Employee No is required." }); return; }
+    setLoading(true);
+    try {
+      const result = await getSinglePayrollPayslip(employeeCode, filters);
+      setSlip(result.data);
+      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      setSlip(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} /></label><label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Printer</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{slip ? <PayslipView slips={[slip]} filters={filters} /> : null}</section>;
+}
+
+function PayDedSchedulePage({ title, defaultCode = "", defaultCodeKey = "", allowExcel = false }) {
+  const [filters, setFilters] = useState(payrollDefaultFilters({ code: defaultCode }));
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [resolvedDefaultCode, setResolvedDefaultCode] = useState(defaultCode);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!defaultCodeKey) return undefined;
+
+    getReportScheduleDefaults()
+      .then((result) => {
+        if (!mounted) return;
+        const nextCode = result.data?.[defaultCodeKey] || defaultCode;
+        setResolvedDefaultCode(nextCode);
+        setFilters((current) => ({ ...current, code: current.code || nextCode }));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setFilters((current) => ({ ...current, code: current.code || defaultCode }));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [defaultCode, defaultCodeKey]);
+
+  const run = async () => {
+    if (!filters.code) {
+      setStatus({ type: "error", message: "Code is required." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await getReportModule("income-tax-schedule", filters);
+      setReport(result.data);
+      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "excel") exportRowsToExcel(result.data.rows || [], `${title}-${filters.month}-${filters.year}.xlsx`);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return <section className="employee-entry-panel arrear-report-panel"><PayrollFilter title={title} filters={filters} setFilters={setFilters} onRun={run} onCancel={() => { setReport(null); setFilters(payrollDefaultFilters({ code: resolvedDefaultCode })); }} loading={loading} allowExcel={allowExcel} /><div className="report-filter-panel no-print"><label><span>Code</span><input value={filters.code || ""} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} placeholder="Wage code" /></label></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <div className="arrear-report-print-area"><ReportLetterhead title={title} filterSummary={`${filters.month}/${filters.year} | Code ${filters.code}`} /><table className="print-report-table"><thead><tr><th>Employee Code</th><th>Name</th><th>Dept</th><th>Designation</th><th>Amount</th></tr></thead><tbody>{(report.rows || []).map((row) => <tr key={row.employee_code}><td>{row.employee_code}</td><td>{row.name}</td><td>{row.department}</td><td>{row.designation}</td><td className="amount-cell">{formatCurrency(row.tax_amount)}</td></tr>)}<tr className="report-total-row"><td colSpan="4">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
+}
+
+function SinglePaySlipsForMonthsPage() {
+  const today = new Date();
+  const [filters, setFilters] = useState({ employeeCode: "", fromMonth: "1", toMonth: String(today.getMonth() + 1), year: String(today.getFullYear()), outputSelection: "screen" });
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const run = async () => {
+    try {
+      const result = await getReportModule("payslips-for-months", filters);
+      setReport(result.data);
+      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    } catch (error) { setStatus({ type: "error", message: error.message }); }
+  };
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Single Pay Slips For Months</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Printer</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <PayslipView slips={report.slips || []} filters={{ month: `${filters.fromMonth}-${filters.toMonth}`, year: filters.year }} /> : null}</section>;
+}
+
+function DesignationWiseListPage() {
+  const [filters, setFilters] = useState(payrollDefaultFilters({ designationCode: "999" }));
+  const [report, setReport] = useState(null);
+  const run = async () => {
+    const result = await getReportModule("designation-wise-list", filters);
+    setReport(result.data);
+    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+  };
+  return <section className="employee-entry-panel arrear-report-panel"><PayrollFilter title="Designation Wise List" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => setReport(null)} loading={false} simple /><div className="report-filter-panel no-print"><label><span>Designation Code</span><input value={filters.designationCode} onChange={(e) => setFilters((c) => ({ ...c, designationCode: e.target.value }))} /></label></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Designation Wise List" filterSummary={`${filters.month}/${filters.year}`} />{(report.designations || []).map((g) => <section className="print-employee-section" key={g.designation}><div className="print-employee-head"><strong>{g.designation}</strong></div><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th><th>Dept</th><th>Net Pay</th></tr></thead><tbody>{g.rows.map((r) => <tr key={r.employeeCode}><td>{r.employeeCode}</td><td>{r.name}</td><td>{r.department}</td><td className="amount-cell">{formatCurrency(r.netPay)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Subtotal</span><strong>PKR {formatCurrency(g.subtotal)}</strong></div></section>)}<div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.grandTotal)}</strong></div></div> : null}</section>;
+}
+
+function AnnualIncomeTaxSchedulePage() {
+  const year = String(new Date().getFullYear());
+  const [filters, setFilters] = useState({ reportFor: "All", fromMonth: "1", fromYear: year, toMonth: "12", toYear: year, code: "G12713", outputSelection: "screen" });
+  const [report, setReport] = useState(null);
+  const run = async () => {
+    const result = await getReportModule("annual-income-tax-schedule", filters);
+    setReport(result.data);
+    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+  };
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Annual Income Tax Schedule</h2></div></div><div className="report-filter-panel no-print"><label><span>Report For</span><select value={filters.reportFor} onChange={(e) => setFilters((c) => ({ ...c, reportFor: e.target.value }))}><option>All</option><option>Regular</option><option>Contract</option></select></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>To Year</span><input type="number" value={filters.toYear} onChange={(e) => setFilters((c) => ({ ...c, toYear: e.target.value }))} /></label><label><span>Code</span><input value={filters.code} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Annual Income Tax Schedule" filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}`} /><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Annual Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.annualTotal)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(report.totals[m])}</td>)}<td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
+}
+
+function PostAuditPage() {
+  const year = String(new Date().getFullYear());
+  const [filters, setFilters] = useState({ employeeCode: "", fromMonth: "1", fromYear: year, outputSelection: "screen" });
+  const [report, setReport] = useState(null);
+  const run = async () => {
+    const result = await getReportModule("post-audit", filters);
+    setReport(result.data);
+    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+  };
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Post Audit</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Post Audit" filterSummary={report.employee ? `${report.employee.employeeCode} - ${report.employee.name}` : filters.employeeCode} /><table className="print-report-table"><thead><tr><th>Code</th><th>Description</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.wageCode}><td>{r.wageCode}</td><td>{r.description}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.total)}</td></tr>)}</tbody></table></div> : null}</section>;
+}
+
+function ActiveInactiveReportPage({ monthwise = false }) {
+  const title = monthwise ? "Active Inactive For The Month" : "Active Inactive Complete";
+  const endpoint = monthwise ? "active-inactive-monthwise" : "active-inactive-complete";
+  const [filters, setFilters] = useState(payrollDefaultFilters());
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const run = async () => {
+    setLoading(true);
+    try {
+      const result = await getReportModule(endpoint, filters);
+      setReport(result.data);
+      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      notifyError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="module-card report-page">
+      <ReportToolbar title={title} onPrint={() => window.print()} />
+      <PayrollFilter filters={filters} setFilters={setFilters} onRun={run} loading={loading} simple={false} />
+      {report ? (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title={title} filterSummary={`${filters.month}/${filters.year}`} />
+          <div className="budget-summary-grid report-summary-grid">
+            <article><span>Active</span><strong>{report.summary?.active || 0}</strong></article>
+            <article><span>Inactive</span><strong>{report.summary?.inactive || 0}</strong></article>
+          </div>
+          <table className="print-report-table">
+            <thead><tr><th>Code</th><th>Name</th><th>Dept</th><th>Designation</th><th>Status</th></tr></thead>
+            <tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td><td>{r.department}</td><td>{r.designation}</td><td>{r.status}</td></tr>)}</tbody>
+          </table>
+        </div>
+      ) : <div className="empty-report">Run the report to view records.</div>}
+    </section>
+  );
+}
+
+function ToExcelPage() {
+  const [filters, setFilters] = useState(payrollDefaultFilters({ outputSelection: "excel" }));
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const run = async () => {
+    try {
+      const result = await getReportModule("export-to-excel", filters);
+      exportRowsToExcel((result.data.rows || []).map((r) => ({ "Employee Code": r.employee_code, Name: r.name, Dept: r.department, Designation: r.designation, "Wage Code": r.wage_code, Description: r.description, Amount: r.amount })), `payroll-export-${filters.month}-${filters.year}.xlsx`);
+      setStatus({ type: "success", message: "Excel exported." });
+    } catch (error) { setStatus({ type: "error", message: error.message }); }
+  };
+  return <section className="employee-entry-panel arrear-report-panel"><PayrollFilter title="To Excel" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => setStatus({ type: "", message: "" })} loading={false} allowExcel />{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}</section>;
+}
+
 function EmployeePayAllowanceInquiry() {
   const [employeeCode, setEmployeeCode] = useState("");
   const [employee, setEmployee] = useState(null);
@@ -4597,10 +5474,72 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <ArrearBillCorrectionPage />
         ) : activeItem === "Budget/Expense Edit" ? (
           <BudgetExpenseEditPage />
+        ) : activeItem === "Salary Proof List" ? (
+          <SalaryProofListPage />
+        ) : activeItem === "Salary Proof List 2" ? (
+          <SalaryProofList2Page />
+        ) : activeItem === "Allowance Proof List" ? (
+          <AllowanceProofListPage />
+        ) : activeItem === "Inactive Proof List" ? (
+          <InactiveProofListPage />
+        ) : activeItem === "Scale Audit Proof Printing" ? (
+          <ScaleAuditProofPrintingPage />
+        ) : activeItem === "Payroll" ? (
+          <PayrollProcessPage />
+        ) : activeItem === "Bank Summary" ? (
+          <BankSummaryPage />
+        ) : activeItem === "Non Bank Salary" ? (
+          <NonBankSalaryPage />
+        ) : activeItem === "Grand Bank Summary" ? (
+          <GrandBankSummaryPage />
+        ) : activeItem === "Payment List" ? (
+          <PaymentListPage />
+        ) : activeItem === "List Of Payment" ? (
+          <ListOfPaymentPage />
+        ) : activeItem === "Scale Audit Register" ? (
+          <PayrollScaleAuditRegisterPage />
+        ) : activeItem === "Budget Requirement" ? (
+          <BudgetRequirementPage />
+        ) : activeItem === "Pay Slips" ? (
+          <PaySlipsPage />
+        ) : activeItem === "Single Pay Slips" ? (
+          <SinglePaySlipPage />
+        ) : activeItem === "Income Tax Schedule" ? (
+          <PayDedSchedulePage title="Income Tax Schedule" defaultCodeKey="incomeTax" defaultCode="G12713" />
+        ) : activeItem === "G.P. Fund Schedule" ? (
+          <PayDedSchedulePage title="G.P. Fund Schedule" defaultCodeKey="gpFund" defaultCode="G06103" />
+        ) : activeItem === "Other Schedules" ? (
+          <PayDedSchedulePage title="Any Pay/Ded. Schedule" />
+        ) : activeItem === "PGHSF Schedule" ? (
+          <PayDedSchedulePage title="PGHSF Schedule" defaultCodeKey="pghsf" defaultCode="G11278" allowExcel />
+        ) : activeItem === "Single Pay Slips For Months" ? (
+          <SinglePaySlipsForMonthsPage />
+        ) : activeItem === "Designation Wise List" ? (
+          <DesignationWiseListPage />
+        ) : activeItem === "Annual Income Tax Schedule" ? (
+          <AnnualIncomeTaxSchedulePage />
+        ) : activeItem === "Post Audit" ? (
+          <PostAuditPage />
+        ) : activeItem === "Active Inactive Complete" ? (
+          <ActiveInactiveReportPage />
+        ) : activeItem === "Active Inactive For The Month" ? (
+          <ActiveInactiveReportPage monthwise />
+        ) : activeItem === "To Excel" ? (
+          <ToExcelPage />
         ) : activeItem === "Employee Pay Allowance Inquiry" ? (
           <EmployeePayAllowanceInquiry />
         ) : activeItem === "Pay Allowances Entry" ? (
           <PayAllowancesEntry />
+        ) : activeItem === "Special Pay Edit" ? (
+          <SpecialPayEdit />
+        ) : activeItem === "Check BOP" ? (
+          <ChequePrintPage bankType="BOP" />
+        ) : activeItem === "Check SDA" ? (
+          <ChequePrintPage bankType="SDA" />
+        ) : activeItem === "Allowances To Excel" ? (
+          <MonthRangeExportPage type="allowances" />
+        ) : activeItem === "Tax Schedule To Excel" ? (
+          <MonthRangeExportPage type="tax" />
         ) : activeItem === "New Employee Entry" ? (
           <NewEmployeeEntryForm onSaved={() => navigateToPage("Employee List")} />
         ) : activeItem === "Department Code Making/Edit" || activeItem === "Department Code List" ? (

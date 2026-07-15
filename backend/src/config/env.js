@@ -12,5 +12,10 @@ export const env = {
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || ""
   },
-  jwtSecret: process.env.JWT_SECRET || "change_this_secret_for_production"
+  jwtSecret: process.env.JWT_SECRET || "change_this_secret_for_production",
+  reportScheduleDefaults: {
+    incomeTax: process.env.REPORT_INCOME_TAX_WAGE_CODE || "G12713",
+    gpFund: process.env.REPORT_GP_FUND_WAGE_CODE || "G06103",
+    pghsf: process.env.REPORT_PGHSF_WAGE_CODE || "G11278"
+  }
 };

@@ -510,6 +510,57 @@ export async function deleteWageCode(code) {
   return data;
 }
 
+export async function getSpecialPay(employeeCode, filters = {}) {
+  const params = new URLSearchParams();
+  params.set("month", filters.month || "");
+  params.set("year", filters.year || "");
+  const response = await fetch(`${API_BASE_URL}/special-pay/${encodeURIComponent(employeeCode)}?${params.toString()}`);
+  return readJsonResponse(response, "Special pay lookup failed.");
+}
+
+export async function saveSpecialPay(payload) {
+  const response = await fetch(`${API_BASE_URL}/special-pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return readJsonResponse(response, "Special pay save failed.");
+}
+
+export async function deleteSpecialPayEntry(id) {
+  const response = await fetch(`${API_BASE_URL}/special-pay/${id}`, { method: "DELETE" });
+  return readJsonResponse(response, "Special pay delete failed.");
+}
+
+export async function printCheque(payload) {
+  const response = await fetch(`${API_BASE_URL}/cheque-print`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return readJsonResponse(response, "Cheque print failed.");
+}
+
+export async function getAllowancesExport(filters = {}) {
+  const params = new URLSearchParams();
+  params.set("from_month", filters.fromMonth || "");
+  params.set("from_year", filters.fromYear || "");
+  params.set("to_month", filters.toMonth || "");
+  params.set("to_year", filters.toYear || "");
+  const response = await fetch(`${API_BASE_URL}/exports/allowances?${params.toString()}`);
+  return readJsonResponse(response, "Allowances export failed.");
+}
+
+export async function getTaxScheduleExport(filters = {}) {
+  const params = new URLSearchParams();
+  params.set("from_month", filters.fromMonth || "");
+  params.set("from_year", filters.fromYear || "");
+  params.set("to_month", filters.toMonth || "");
+  params.set("to_year", filters.toYear || "");
+  const response = await fetch(`${API_BASE_URL}/exports/tax-schedule?${params.toString()}`);
+  return readJsonResponse(response, "Tax schedule export failed.");
+}
+
 export async function getNextArrearDocumentNo() {
   const response = await fetch(`${API_BASE_URL}/arrear-bills/next-document-no`);
   return readJsonResponse(response, "Next arrear document number failed.");
@@ -731,6 +782,111 @@ export async function getEmployeeAllowances(employeeId) {
   }
 
   return data;
+}
+
+function buildProofReportParams(filters = {}) {
+  const params = new URLSearchParams();
+  params.set("dept_code", filters.deptCode || "999");
+  params.set("gaz_ng", filters.gazNg || "A");
+  params.set("report_for", filters.reportFor || "All");
+
+  if (filters.bps) params.set("bps", filters.bps);
+  if (filters.month) params.set("month", filters.month);
+  if (filters.year) params.set("year", filters.year);
+
+  return params;
+}
+
+export async function getProofReport(endpoint, filters = {}) {
+  const params = buildProofReportParams(filters);
+  const response = await fetch(`${API_BASE_URL}/reports/${endpoint}?${params.toString()}`);
+  return readJsonResponse(response, "Proof report failed.");
+}
+
+export async function getReportModule(endpoint, filters = {}) {
+  const params = new URLSearchParams();
+  const mappings = {
+    deptCode: "dept_code",
+    gazNg: "gaz_ng",
+    reportFor: "report_for",
+    employeeCode: "employee_code",
+    fromMonth: "from_month",
+    toMonth: "to_month",
+    fromYear: "from_year",
+    toYear: "to_year",
+    designationCode: "designation_code"
+  };
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(mappings[key] || key, value);
+    }
+  });
+
+  const response = await fetch(`${API_BASE_URL}/reports/${endpoint}?${params.toString()}`);
+  return readJsonResponse(response, "Report failed.");
+}
+
+export async function getReportScheduleDefaults() {
+  const response = await fetch(`${API_BASE_URL}/reports/schedule-defaults`);
+  return readJsonResponse(response, "Report schedule defaults failed.");
+}
+
+function payrollParams(filters = {}) {
+  const params = new URLSearchParams();
+  params.set("dept_code", filters.deptCode || "999");
+  params.set("gaz_ng", filters.gazNg || "A");
+  params.set("report_for", filters.reportFor || "All");
+  params.set("month", filters.month || "");
+  params.set("year", filters.year || "");
+  return params;
+}
+
+export async function processPayroll(payload) {
+  const response = await fetch(`${API_BASE_URL}/payroll/process`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      payment_month: Number(payload.month),
+      payment_year: Number(payload.year),
+      dept_code: payload.deptCode || "999",
+      gaz_ng: payload.gazNg || "A",
+      report_for: payload.reportFor || "All"
+    })
+  });
+  return readJsonResponse(response, "Payroll processing failed.");
+}
+
+export async function getPayrollReport(endpoint, filters = {}) {
+  const params = payrollParams(filters);
+  const response = await fetch(`${API_BASE_URL}/payroll/${endpoint}?${params.toString()}`);
+  return readJsonResponse(response, "Payroll report failed.");
+}
+
+export async function getPayrollBudgetRequirement(endingDate) {
+  const params = new URLSearchParams({ ending_date: endingDate });
+  const response = await fetch(`${API_BASE_URL}/payroll/budget-requirement?${params.toString()}`);
+  return readJsonResponse(response, "Budget requirement failed.");
+}
+
+export async function getSinglePayrollPayslip(employeeCode, filters = {}) {
+  const params = new URLSearchParams({ month: filters.month || "", year: filters.year || "" });
+  const response = await fetch(`${API_BASE_URL}/payroll/payslip/${encodeURIComponent(employeeCode)}?${params.toString()}`);
+  return readJsonResponse(response, "Single pay slip failed.");
+}
+
+export async function getPayrollRuns(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.month) params.set("month", filters.month);
+  if (filters.year) params.set("year", filters.year);
+  if (filters.deptCode) params.set("dept_code", filters.deptCode);
+  const response = await fetch(`${API_BASE_URL}/payroll/runs?${params.toString()}`);
+  return readJsonResponse(response, "Payroll runs failed.");
+}
+
+export async function reopenPayrollRun(id) {
+  const response = await fetch(`${API_BASE_URL}/payroll/runs/${id}/reopen`, { method: "POST" });
+  return readJsonResponse(response, "Payroll reopen failed.");
 }
 
 export async function saveEmployeeAllowances(employeeId, allowances) {

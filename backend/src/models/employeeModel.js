@@ -32,6 +32,7 @@ export async function ensureEmployeesTable() {
       pghsf_no VARCHAR(100),
       religion VARCHAR(80),
       sap_no VARCHAR(100),
+      status ENUM('active','inactive') DEFAULT 'active',
       stop_date DATE NULL,
       special_designation VARCHAR(150),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -68,6 +69,46 @@ export async function ensureEmployeesTable() {
   if (!bankBranchColumns.length) {
     await pool.query("ALTER TABLE employees ADD COLUMN bank_branch VARCHAR(150) NULL AFTER bank_branch_code");
   }
+
+  const [statusColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'status'");
+
+  if (!statusColumns.length) {
+    await pool.query("ALTER TABLE employees ADD COLUMN status ENUM('active','inactive') DEFAULT 'active' AFTER sap_no");
+  }
+}
+
+export async function ensureEmployeeScaleHistoryTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS employee_scale_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      employee_code VARCHAR(50) NOT NULL,
+      old_bps INT,
+      new_bps INT NOT NULL,
+      effective_date DATE NOT NULL,
+      changed_by VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_scale_history_employee
+        FOREIGN KEY (employee_code) REFERENCES employees(employee_no)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    )
+  `);
+}
+
+export async function ensureEmployeeStatusHistoryTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS employee_status_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      employee_code VARCHAR(50) NOT NULL,
+      status ENUM('active','inactive') NOT NULL,
+      effective_date DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_status_history_employee
+        FOREIGN KEY (employee_code) REFERENCES employees(employee_no)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    )
+  `);
 }
 
 export async function insertEmployee(employee) {
@@ -104,9 +145,10 @@ export async function insertEmployee(employee) {
         pghsf_no,
         religion,
         sap_no,
+        status,
         stop_date,
         special_designation
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       employee.employeeNo,
@@ -137,6 +179,7 @@ export async function insertEmployee(employee) {
       toNull(employee.pghsfNo),
       toNull(employee.religion),
       toNull(employee.sapNo),
+      employee.status || "active",
       toNull(employee.stopDate),
       toNull(employee.specialDesignation)
     ]
@@ -177,6 +220,7 @@ export async function getEmployees() {
       pghsf_no AS pghsfNo,
       religion,
       sap_no AS sapNo,
+      status,
       DATE_FORMAT(stop_date, '%Y-%m-%d') AS stopDate,
       special_designation AS specialDesignation,
       created_at AS createdAt
@@ -220,6 +264,7 @@ export async function getEmployeeByCode(employeeNo) {
         pghsf_no AS pghsfNo,
         religion,
         sap_no AS sapNo,
+        status,
         DATE_FORMAT(stop_date, '%Y-%m-%d') AS stopDate,
         special_designation AS specialDesignation
       FROM employees
@@ -234,6 +279,10 @@ export async function getEmployeeByCode(employeeNo) {
 
 export async function updateEmployeeById(id, employee) {
   const toNull = (value) => (value === "" || value === undefined ? null : value);
+  const [[existingEmployee]] = await pool.query(
+    "SELECT employee_no AS employeeNo, bps, status FROM employees WHERE id = ? LIMIT 1",
+    [id]
+  );
 
   const [result] = await pool.query(
     `
@@ -266,6 +315,7 @@ export async function updateEmployeeById(id, employee) {
         pghsf_no = ?,
         religion = ?,
         sap_no = ?,
+        status = ?,
         stop_date = ?,
         special_designation = ?
       WHERE id = ?
@@ -299,11 +349,44 @@ export async function updateEmployeeById(id, employee) {
       toNull(employee.pghsfNo),
       toNull(employee.religion),
       toNull(employee.sapNo),
+      employee.status || "active",
       toNull(employee.stopDate),
       toNull(employee.specialDesignation),
       id
     ]
   );
+
+  if (result.affectedRows && existingEmployee && String(existingEmployee.bps || "") !== String(employee.bps || "")) {
+    const newBps = Number(employee.bps || 0);
+
+    if (newBps > 0) {
+      await pool.query(
+        `
+          INSERT INTO employee_scale_history (
+            employee_code,
+            old_bps,
+            new_bps,
+            effective_date,
+            changed_by
+          ) VALUES (?, ?, ?, CURDATE(), ?)
+        `,
+        [existingEmployee.employeeNo, Number(existingEmployee.bps || 0) || null, newBps, employee.changedBy || "Hospital Admin"]
+      );
+    }
+  }
+
+  if (result.affectedRows && existingEmployee && String(existingEmployee.status || "active") !== String(employee.status || "active")) {
+    await pool.query(
+      `
+        INSERT INTO employee_status_history (
+          employee_code,
+          status,
+          effective_date
+        ) VALUES (?, ?, CURDATE())
+      `,
+      [existingEmployee.employeeNo, employee.status || "active"]
+    );
+  }
 
   return result.affectedRows;
 }

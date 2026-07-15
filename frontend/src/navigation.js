@@ -44,7 +44,6 @@ export const sidebarSections = [
       "Bank Summary",
       "Non Bank Salary",
       "Grand Bank Summary",
-      "Budget Requirement",
       "Payment List",
       "Payroll",
       "List Of Payment",
