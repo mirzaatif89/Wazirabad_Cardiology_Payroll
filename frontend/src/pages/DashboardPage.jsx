@@ -262,6 +262,7 @@ function EmployeeBasicDataInquiry() {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [pendingDeleteEmployee, setPendingDeleteEmployee] = useState(null);
 
   const searchableEmployees = employees.filter((employee) => {
     const query = searchTerm.trim().toLowerCase();
@@ -431,18 +432,17 @@ function EmployeeBasicDataInquiry() {
     }
   };
 
-  const removeEmployee = async (employee) => {
-    const confirmed = window.confirm(`Delete employee ${employee.employeeNo} - ${employee.name}?`);
-
-    if (!confirmed) {
+  const confirmDeleteEmployee = async () => {
+    if (!pendingDeleteEmployee) {
       return;
     }
 
     setStatus({ type: "", message: "" });
 
     try {
-      const result = await deleteEmployee(employee.id);
+      const result = await deleteEmployee(pendingDeleteEmployee.id);
       setStatus({ type: "success", message: result.message });
+      setPendingDeleteEmployee(null);
       await loadEmployees();
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -587,7 +587,11 @@ function EmployeeBasicDataInquiry() {
                     <button type="button" onClick={() => startEdit(employee)} title="Edit employee">
                       <Pencil size={16} />
                     </button>
-                    <button type="button" onClick={() => removeEmployee(employee)} title="Delete employee">
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteEmployee(employee)}
+                      title="Delete employee"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -603,6 +607,29 @@ function EmployeeBasicDataInquiry() {
           </tbody>
         </table>
       </div>
+
+      {pendingDeleteEmployee ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete confirmation">
+          <div className="delete-modal">
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Wazirabad Cardiology Hospital</p>
+              <h3>Do you want to delete this entry?</h3>
+              <span>
+                {pendingDeleteEmployee.employeeNo} - {pendingDeleteEmployee.name}
+              </span>
+            </div>
+            <div className="delete-modal-actions">
+              <button type="button" onClick={() => setPendingDeleteEmployee(null)}>
+                Cancel
+              </button>
+              <button type="button" onClick={confirmDeleteEmployee}>
+                Delete Entry
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

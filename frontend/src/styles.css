@@ -754,6 +754,85 @@ h1 {
   background: #b4232a;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(12, 33, 37, 0.42);
+}
+
+.delete-modal {
+  width: min(100%, 430px);
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 26px;
+  border: 1px solid #c8d8d5;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 22px 58px rgba(8, 33, 37, 0.28);
+  text-align: center;
+}
+
+.delete-modal img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  padding: 6px;
+  border: 1px solid #d8e4e2;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.delete-modal p {
+  margin: 0 0 6px;
+  color: #0b746b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.delete-modal h3 {
+  margin: 0;
+  color: #17383c;
+  font-size: 1.28rem;
+}
+
+.delete-modal span {
+  display: block;
+  margin-top: 8px;
+  color: #5c6f73;
+}
+
+.delete-modal-actions {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.delete-modal-actions button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-modal-actions button:first-child {
+  color: #17383c;
+  background: #e3eeee;
+}
+
+.delete-modal-actions button:last-child {
+  color: #ffffff;
+  background: #b4232a;
+}
+
 .edit-form {
   margin: 14px 0;
   padding: 16px;
