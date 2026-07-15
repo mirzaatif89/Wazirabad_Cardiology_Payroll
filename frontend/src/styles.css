@@ -13,6 +13,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  font-size: 16px;
+  overflow-x: hidden;
 }
 
 button,
@@ -150,7 +152,7 @@ h1 {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: 310px minmax(0, 1fr);
   background: #eef5f4;
 }
 
@@ -184,7 +186,8 @@ h1 {
 
 .sidebar-brand strong {
   display: block;
-  font-size: 1.2rem;
+  font-size: 1.05rem;
+  line-height: 1.25;
 }
 
 .sidebar-logo {
@@ -216,7 +219,7 @@ h1 {
 
 .nav-main {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) 18px;
   align-items: center;
@@ -227,6 +230,7 @@ h1 {
   background: transparent;
   text-align: left;
   font-weight: 800;
+  font-size: 0.95rem;
 }
 
 .nav-main span {
@@ -260,14 +264,17 @@ h1 {
 
 .nav-submenu button {
   width: 100%;
-  min-height: 34px;
-  padding: 6px 9px;
+  min-height: 36px;
+  padding: 7px 9px;
   border-radius: 8px;
   color: #cde0df;
   background: transparent;
   text-align: left;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-submenu button:hover,
@@ -278,7 +285,7 @@ h1 {
 
 .dashboard-main {
   min-width: 0;
-  padding: 24px;
+  padding: 24px 28px;
 }
 
 .topbar {
@@ -305,7 +312,7 @@ h1 {
 
 .topbar h1 {
   margin-top: 4px;
-  font-size: 1.8rem;
+  font-size: 2rem;
 }
 
 .user-actions {
@@ -384,6 +391,8 @@ h1 {
 }
 
 .employee-entry-panel {
+  max-width: 100%;
+  overflow: hidden;
   padding: 22px;
   border: 1px solid #c8d8d5;
   border-radius: 8px;
@@ -412,7 +421,7 @@ h1 {
 .form-title-row h2 {
   margin: 0;
   color: #17383c;
-  font-size: 1.55rem;
+  font-size: 1.65rem;
 }
 
 .form-title-row > span {
@@ -442,7 +451,7 @@ h1 {
 
 .table-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(210px, 260px) auto;
+  grid-template-columns: minmax(340px, 1fr) minmax(220px, 260px) auto;
   gap: 12px;
   align-items: end;
   margin-bottom: 14px;
@@ -455,15 +464,15 @@ h1 {
 
 .table-toolbar span {
   color: #31474c;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   font-weight: 500;
 }
 
 .table-toolbar input,
 .table-toolbar select {
   width: 100%;
-  min-height: 42px;
-  padding: 8px 12px;
+  min-height: 44px;
+  padding: 9px 12px;
   border: 1px solid #c6d8d6;
   border-radius: 8px;
   color: #1f3034;
@@ -478,7 +487,7 @@ h1 {
 }
 
 .print-button {
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 8px;
@@ -585,15 +594,19 @@ h1 {
 }
 
 .table-wrap {
-  overflow: visible;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   margin-top: 14px;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid #d8e4e2;
+  border-radius: 8px;
+  scrollbar-width: thin;
 }
 
 .employee-table {
-  width: 100%;
-  table-layout: auto;
+  width: max-content;
+  min-width: 1180px;
+  table-layout: fixed;
   border-collapse: collapse;
   background: #ffffff;
 }
@@ -602,42 +615,101 @@ h1 {
 .employee-table td {
   padding: 11px 10px;
   border-bottom: 1px solid #e2ecea;
+  border-right: 1px solid #edf4f2;
   color: #20383d;
   text-align: left;
   vertical-align: middle;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+.employee-table th:last-child,
+.employee-table td:last-child {
+  border-right: 0;
 }
 
 .employee-table th {
   color: #ffffff;
   background: #123438;
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   font-weight: 600;
   text-transform: uppercase;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .employee-table th:first-child {
-  border-top-left-radius: 8px;
+  border-top-left-radius: 7px;
 }
 
 .employee-table th:last-child {
-  border-top-right-radius: 8px;
+  border-top-right-radius: 7px;
 }
 
 .employee-table td:last-child,
 .employee-table th:last-child {
   overflow: visible;
-  width: 124px;
-  min-width: 124px;
+  width: 92px;
+  min-width: 92px;
 }
 
 .employee-table th:first-child,
 .employee-table td:first-child {
-  width: 44px;
+  width: 38px;
+  min-width: 38px;
   text-align: center;
+}
+
+.employee-table th:nth-child(2),
+.employee-table td:nth-child(2) {
+  width: 96px;
+}
+
+.employee-table th:nth-child(3),
+.employee-table td:nth-child(3) {
+  width: 150px;
+}
+
+.employee-table th:nth-child(4),
+.employee-table td:nth-child(4) {
+  width: 150px;
+}
+
+.employee-table th:nth-child(5),
+.employee-table td:nth-child(5) {
+  width: 210px;
+}
+
+.employee-table th:nth-child(6),
+.employee-table td:nth-child(6) {
+  width: 132px;
+}
+
+.employee-table th:nth-child(7),
+.employee-table td:nth-child(7) {
+  width: 140px;
+}
+
+.employee-table th:nth-child(8),
+.employee-table td:nth-child(8) {
+  width: 120px;
+}
+
+.employee-table th:nth-child(9),
+.employee-table td:nth-child(9) {
+  width: 128px;
+}
+
+.employee-table th:nth-child(10),
+.employee-table td:nth-child(10) {
+  width: 54px;
+  text-align: center;
+}
+
+.employee-table th:nth-child(11),
+.employee-table td:nth-child(11) {
+  width: 128px;
 }
 
 .employee-table input[type="checkbox"] {
@@ -652,64 +724,34 @@ h1 {
 }
 
 .employee-table td {
-  font-size: 0.86rem;
+  font-size: 0.91rem;
   font-weight: 400;
-  white-space: normal;
+  white-space: nowrap;
 }
 
-.row-actions-menu {
-  position: relative;
-  display: inline-block;
+.row-icon-actions {
+  display: flex;
+  gap: 7px;
+  justify-content: center;
 }
 
-.row-actions-menu > button {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 11px;
+.row-icon-actions button {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
   border: 0;
   border-radius: 7px;
   color: #ffffff;
+  cursor: pointer;
+}
+
+.row-icon-actions button:first-child {
   background: #0b746b;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
-.row-actions-dropdown {
-  position: absolute;
-  right: 0;
-  z-index: 30;
-  min-width: 120px;
-  margin-top: 6px;
-  padding: 5px;
-  border: 1px solid #d5e2e0;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 12px 28px rgba(22, 54, 58, 0.18);
-}
-
-.row-actions-dropdown button {
-  width: 100%;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #20383d;
-  text-align: left;
-  font-size: 0.86rem;
-  font-weight: 400;
-  cursor: pointer;
-}
-
-.row-actions-dropdown button:hover {
-  background: #edf5f4;
-}
-
-.row-actions-dropdown button:last-child {
-  color: #a11d24;
+.row-icon-actions button:last-child {
+  background: #b4232a;
 }
 
 .edit-form {

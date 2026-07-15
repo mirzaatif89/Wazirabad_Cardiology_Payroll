@@ -9,8 +9,10 @@ import {
   FileText,
   Home,
   LogOut,
+  Pencil,
   ReceiptText,
   ShieldCheck,
+  Trash2,
   Users
 } from "lucide-react";
 import React from "react";
@@ -260,7 +262,6 @@ function EmployeeBasicDataInquiry() {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [openActionId, setOpenActionId] = useState(null);
 
   const searchableEmployees = employees.filter((employee) => {
     const query = searchTerm.trim().toLowerCase();
@@ -400,7 +401,6 @@ function EmployeeBasicDataInquiry() {
 
     setEditingEmployee(employee);
     setEditForm(formData);
-    setOpenActionId(null);
     setStatus({ type: "", message: "" });
   };
 
@@ -438,7 +438,6 @@ function EmployeeBasicDataInquiry() {
       return;
     }
 
-    setOpenActionId(null);
     setStatus({ type: "", message: "" });
 
     try {
@@ -584,22 +583,13 @@ function EmployeeBasicDataInquiry() {
                 <td>{employee.bps || "-"}</td>
                 <td>{employee.placeOfPosting || "-"}</td>
                 <td>
-                  <div className="row-actions-menu">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenActionId((current) => (current === employee.id ? null : employee.id))
-                      }
-                    >
-                      Actions
-                      <ChevronDown size={15} />
+                  <div className="row-icon-actions">
+                    <button type="button" onClick={() => startEdit(employee)} title="Edit employee">
+                      <Pencil size={16} />
                     </button>
-                    {openActionId === employee.id ? (
-                      <div className="row-actions-dropdown">
-                        <button type="button" onClick={() => startEdit(employee)}>Edit</button>
-                        <button type="button" onClick={() => removeEmployee(employee)}>Delete</button>
-                      </div>
-                    ) : null}
+                    <button type="button" onClick={() => removeEmployee(employee)} title="Delete employee">
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -865,7 +855,7 @@ export default function DashboardPage({ user, onLogout }) {
           </div>
           <div>
             <p>Hospital Payroll</p>
-            <strong>Cardiology</strong>
+            <strong>Wazirabad Cardiology Hospital</strong>
           </div>
         </div>
 
@@ -917,7 +907,7 @@ export default function DashboardPage({ user, onLogout }) {
       <main className="dashboard-main">
         <header className="topbar">
           <div>
-            <p>Payroll Management System</p>
+            <p>Wazirabad Cardiology Hospital</p>
             <h1>{activeItem}</h1>
           </div>
           <div className="user-actions">
