@@ -65,7 +65,15 @@ export async function getEmployeeAllowances(employeeId) {
         allowance_code AS allowanceCode,
         description,
         amount,
-        DATE_FORMAT(upto, '%Y-%m-%d') AS upto
+        DATE_FORMAT(upto, '%Y-%m-%d') AS upto,
+        CASE
+          WHEN upto IS NOT NULL AND upto < CURDATE() THEN 1
+          ELSE 0
+        END AS isExpired,
+        CASE
+          WHEN upto IS NULL OR upto >= CURDATE() THEN 1
+          ELSE 0
+        END AS isSalaryActive
       FROM employee_allowances
       WHERE employee_id = ?
       ORDER BY sr_no ASC
@@ -74,4 +82,18 @@ export async function getEmployeeAllowances(employeeId) {
   );
 
   return rows;
+}
+
+export async function getActiveAllowanceTotal(employeeId) {
+  const [rows] = await pool.query(
+    `
+      SELECT COALESCE(SUM(amount), 0) AS activeAllowanceTotal
+      FROM employee_allowances
+      WHERE employee_id = ?
+        AND (upto IS NULL OR upto >= CURDATE())
+    `,
+    [employeeId]
+  );
+
+  return Number(rows[0]?.activeAllowanceTotal || 0);
 }

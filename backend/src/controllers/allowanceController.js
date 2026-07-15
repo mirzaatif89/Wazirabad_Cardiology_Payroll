@@ -1,9 +1,14 @@
-import { getEmployeeAllowances, replaceEmployeeAllowances } from "../models/allowanceModel.js";
+import {
+  getActiveAllowanceTotal,
+  getEmployeeAllowances,
+  replaceEmployeeAllowances
+} from "../models/allowanceModel.js";
 
 export async function listAllowances(req, res) {
   try {
     const allowances = await getEmployeeAllowances(req.params.employeeId);
-    return res.json({ allowances });
+    const activeAllowanceTotal = await getActiveAllowanceTotal(req.params.employeeId);
+    return res.json({ allowances, activeAllowanceTotal });
   } catch (error) {
     console.error("Allowance list failed:", error);
     return res.status(500).json({ message: "Allowance list failed." });

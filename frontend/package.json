@@ -4,16 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "sync:pages": "node scripts/sync-html-pages.mjs",
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "npm run sync:pages && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
-    "vite": "^7.1.12",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "lucide-react": "^0.468.0"
-  },
-  "devDependencies": {}
+    "vite": "^7.1.12",
+    "xlsx": "^0.18.5"
+  }
 }
