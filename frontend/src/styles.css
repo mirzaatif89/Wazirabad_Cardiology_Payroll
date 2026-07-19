@@ -69,8 +69,16 @@ textarea {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #ffffff;
-  background: #09746f;
+  overflow: hidden;
+  border: 1px solid #d8e4e2;
+  background: #ffffff;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
 }
 
 .eyebrow {
@@ -160,6 +168,98 @@ h1 {
   background: #fde4e7;
 }
 
+.welcome-splash {
+  min-height: 100vh;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 24px;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.34), transparent 30%),
+    linear-gradient(135deg, #0b746b, #123438 58%, #0d2d33);
+}
+
+.welcome-glow {
+  position: absolute;
+  width: min(62vw, 520px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(84, 214, 176, 0.26);
+  filter: blur(38px);
+  animation: welcomeGlow 1.9s ease-in-out both;
+}
+
+.welcome-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+  animation: welcomePanelIn 1.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.welcome-logo-wrap {
+  width: clamp(96px, 18vw, 136px);
+  height: clamp(96px, 18vw, 136px);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 26px 70px rgba(4, 22, 25, 0.34);
+  animation: welcomeLogoPop 1.15s cubic-bezier(0.2, 1.2, 0.28, 1) both;
+}
+
+.welcome-logo-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 8px;
+}
+
+.welcome-panel p {
+  margin: 10px 0 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  opacity: 0.86;
+}
+
+.welcome-panel h1 {
+  max-width: min(680px, 92vw);
+  color: #ffffff;
+  font-size: clamp(2.2rem, 7vw, 5rem);
+  line-height: 1;
+  text-shadow: 0 12px 34px rgba(5, 23, 27, 0.38);
+}
+
+.welcome-loader {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.welcome-loader span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffffff;
+  animation: welcomeDot 0.85s ease-in-out infinite;
+}
+
+.welcome-loader span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.welcome-loader span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -212,8 +312,81 @@ h1 {
   place-items: center;
   flex: 0 0 auto;
   border-radius: 8px;
-  color: #123438;
-  background: #dff7ef;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: #ffffff;
+}
+
+.sidebar-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+}
+
+@keyframes welcomePanelIn {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.96);
+  }
+
+  18%,
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.98);
+  }
+}
+
+@keyframes welcomeLogoPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.62) rotate(-7deg);
+  }
+
+  62% {
+    opacity: 1;
+    transform: scale(1.06) rotate(0deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes welcomeGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0.2;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes welcomeDot {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-8px);
+  }
 }
 
 .sidebar-nav {

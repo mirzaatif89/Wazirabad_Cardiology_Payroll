@@ -1,4 +1,4 @@
-import { HeartPulse, Lock, LogIn, User } from "lucide-react";
+import { Lock, LogIn, User } from "lucide-react";
 import React from "react";
 import { useState } from "react";
 import { loginUser } from "../services/api.js";
@@ -34,7 +34,7 @@ export default function LoginPage({ onLogin }) {
       <section className="login-panel" aria-label="Hospital payroll login">
         <div className="brand-block">
           <div className="brand-mark">
-            <HeartPulse size={34} strokeWidth={2.4} />
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital logo" />
           </div>
           <div>
             <p className="eyebrow">Cardiology Hospital</p>

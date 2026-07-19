@@ -5362,7 +5362,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="sidebar-logo">
-            <Building2 size={26} />
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital logo" />
           </div>
           <div>
             <p>Hospital Payroll</p>
