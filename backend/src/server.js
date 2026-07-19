@@ -94,9 +94,9 @@ async function startServer() {
     await ensureEmployeesTable();
     await ensureEmployeeScaleHistoryTable();
     await ensureEmployeeStatusHistoryTable();
-    await ensurePayrollTables();
     await ensureAllowancesTable();
     await ensureWageCodesTable();
+    await ensurePayrollTables();
     await ensureTransactionTables();
     await ensureArrearBillTables();
     await ensureBudgetTransactionTables();

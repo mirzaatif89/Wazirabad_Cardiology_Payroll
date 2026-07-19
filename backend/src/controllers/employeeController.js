@@ -86,7 +86,9 @@ export async function updateEmployee(req, res) {
       return res.status(404).json({ message: "Employee not found." });
     }
 
-    return res.json({ message: "Employee updated successfully." });
+    const employee = await getEmployeeByCode(req.body.employeeNo);
+
+    return res.json({ message: "Employee updated successfully.", employee });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ message: "Employee No. already exists." });

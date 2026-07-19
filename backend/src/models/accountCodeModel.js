@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { DEFAULT_ACCOUNT_CODES } from "./defaultAccountCodes.js";
 
 const toNull = (value) => (value === "" || value === undefined ? null : value);
 
@@ -12,6 +13,17 @@ export async function ensureAccountCodesTable() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  if (DEFAULT_ACCOUNT_CODES.length) {
+    await pool.query(
+      `
+        INSERT INTO account_codes (code, designation)
+        VALUES ${DEFAULT_ACCOUNT_CODES.map(() => "(?, ?)").join(", ")}
+        ON DUPLICATE KEY UPDATE designation = VALUES(designation)
+      `,
+      DEFAULT_ACCOUNT_CODES.flatMap((account) => [account.code, account.name])
+    );
+  }
 }
 
 export async function getAccountCodes() {

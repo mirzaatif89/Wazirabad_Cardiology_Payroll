@@ -284,6 +284,10 @@ export async function updateEmployeeById(id, employee) {
     [id]
   );
 
+  if (!existingEmployee) {
+    return 0;
+  }
+
   const [result] = await pool.query(
     `
       UPDATE employees SET
@@ -356,7 +360,7 @@ export async function updateEmployeeById(id, employee) {
     ]
   );
 
-  if (result.affectedRows && existingEmployee && String(existingEmployee.bps || "") !== String(employee.bps || "")) {
+  if (result.affectedRows && String(existingEmployee.bps || "") !== String(employee.bps || "")) {
     const newBps = Number(employee.bps || 0);
 
     if (newBps > 0) {
@@ -375,7 +379,7 @@ export async function updateEmployeeById(id, employee) {
     }
   }
 
-  if (result.affectedRows && existingEmployee && String(existingEmployee.status || "active") !== String(employee.status || "active")) {
+  if (result.affectedRows && String(existingEmployee.status || "active") !== String(employee.status || "active")) {
     await pool.query(
       `
         INSERT INTO employee_status_history (
@@ -388,7 +392,7 @@ export async function updateEmployeeById(id, employee) {
     );
   }
 
-  return result.affectedRows;
+  return result.affectedRows || 1;
 }
 
 export async function deleteEmployeeById(id) {

@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { DEFAULT_ACCOUNT_CODES } from "./defaultAccountCodes.js";
 
 export async function ensureChartOfAccountsTable() {
   await pool.query(`
@@ -9,6 +10,17 @@ export async function ensureChartOfAccountsTable() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  if (DEFAULT_ACCOUNT_CODES.length) {
+    await pool.query(
+      `
+        INSERT INTO chart_of_accounts (code, name)
+        VALUES ${DEFAULT_ACCOUNT_CODES.map(() => "(?, ?)").join(", ")}
+        ON DUPLICATE KEY UPDATE name = VALUES(name)
+      `,
+      DEFAULT_ACCOUNT_CODES.flatMap((account) => [account.code, account.name])
+    );
+  }
 }
 
 export async function getChartOfAccounts(search = "") {

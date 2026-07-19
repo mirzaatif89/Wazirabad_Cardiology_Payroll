@@ -2,6 +2,10 @@ import { pool } from "../config/database.js";
 
 const toNull = (value) => (value === "" || value === undefined ? null : value);
 
+const DEFAULT_DEPARTMENTS = [
+  { code: "1", department: "GENERAL" }
+];
+
 export async function ensureDepartmentsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS department_codes (
@@ -12,6 +16,17 @@ export async function ensureDepartmentsTable() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  if (DEFAULT_DEPARTMENTS.length) {
+    await pool.query(
+      `
+        INSERT INTO department_codes (code, department)
+        VALUES ${DEFAULT_DEPARTMENTS.map(() => "(?, ?)").join(", ")}
+        ON DUPLICATE KEY UPDATE department = VALUES(department)
+      `,
+      DEFAULT_DEPARTMENTS.flatMap((department) => [department.code, department.department])
+    );
+  }
 }
 
 export async function getDepartments() {

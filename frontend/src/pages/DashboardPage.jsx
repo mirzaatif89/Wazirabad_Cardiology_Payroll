@@ -82,9 +82,11 @@ import {
   saveSpecialPay,
   updateAccountCode,
   updateArrearBill,
+  updateArrearBillStatus,
   updateBank,
   updateBankBranch,
   updateBudgetTransaction,
+  updateBudgetTransactionStatus,
   updateDepartment,
   updateDesignation,
   updateEmployee,
@@ -626,9 +628,16 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
 
     try {
       const result = await updateEmployee(editingEmployee.id, editForm);
-      setStatus({ type: "success", message: result.message });
+      if (result.employee) {
+        setEmployees((current) =>
+          current.map((employee) =>
+            employee.id === result.employee.id ? result.employee : employee
+          )
+        );
+      }
       cancelEdit();
       await loadEmployees();
+      setStatus({ type: "success", message: result.message });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {
@@ -788,18 +797,24 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
                 <td>{employee.bps || "-"}</td>
                 <td>{employee.placeOfPosting || "-"}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => startEdit(employee)} title="Edit employee">
-                      <Pencil size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDeleteEmployee(employee)}
-                      title="Delete employee"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="employee-action-select"
+                    value=""
+                    aria-label={`Actions for employee ${employee.employeeNo}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEdit(employee);
+                      }
+
+                      if (event.target.value === "delete") {
+                        setPendingDeleteEmployee(employee);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
@@ -1006,14 +1021,24 @@ function DepartmentCodeManagement() {
                 <td>{department.code}</td>
                 <td>{department.department}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => startEdit(department)} title="Edit department">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeDepartment(department)} title="Delete department">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for department code ${department.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEdit(department);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeDepartment(department);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
@@ -1197,14 +1222,24 @@ function DesignationCodeManagement() {
                 <td>{designation.code}</td>
                 <td>{designation.designation}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => startEdit(designation)} title="Edit designation">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeDesignation(designation)} title="Delete designation">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for designation code ${designation.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEdit(designation);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeDesignation(designation);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
@@ -1226,9 +1261,16 @@ function BankCodeManagement() {
   const [banks, setBanks] = useState([]);
   const [form, setForm] = useState(emptyBankForm);
   const [editingBank, setEditingBank] = useState(null);
+  const [bankSearchTerm, setBankSearchTerm] = useState("");
   const [status, setStatus] = useState({ type: "", message: "Loading bank codes..." });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const normalizedBankSearch = bankSearchTerm.trim().toLowerCase();
+  const displayedBanks = normalizedBankSearch
+    ? banks.filter((bank) =>
+        [bank.code, bank.bank].some((value) => String(value || "").toLowerCase().includes(normalizedBankSearch))
+      )
+    : banks;
 
   const loadBanks = async () => {
     setLoading(true);
@@ -1349,6 +1391,21 @@ function BankCodeManagement() {
         <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
       ) : null}
 
+      <div className="account-code-search-row">
+        <label>
+          <span>Search Bank Code</span>
+          <input
+            type="search"
+            value={bankSearchTerm}
+            onChange={(event) => setBankSearchTerm(event.target.value)}
+            placeholder="Search by code or bank name"
+          />
+        </label>
+        <span>
+          {displayedBanks.length} of {banks.length} shown
+        </span>
+      </div>
+
       <div className="table-wrap">
         <table className="department-table">
           <thead>
@@ -1359,30 +1416,38 @@ function BankCodeManagement() {
             </tr>
           </thead>
           <tbody>
-            {banks.map((bank) => (
+            {displayedBanks.map((bank) => (
               <tr key={bank.id}>
                 <td>{bank.code}</td>
                 <td>{bank.bank}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => {
-                      setEditingBank(bank);
-                      setForm({ code: bank.code, bank: bank.bank });
-                      setStatus({ type: "", message: "" });
-                    }} title="Edit bank">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeBank(bank)} title="Delete bank">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for bank code ${bank.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        setEditingBank(bank);
+                        setForm({ code: bank.code, bank: bank.bank });
+                        setStatus({ type: "", message: "" });
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeBank(bank);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
 
-            {!banks.length && !loading ? (
+            {!displayedBanks.length && !loading ? (
               <tr>
-                <td colSpan="3">No bank codes found.</td>
+                <td colSpan="3">{bankSearchTerm ? "No matching bank codes found." : "No bank codes found."}</td>
               </tr>
             ) : null}
           </tbody>
@@ -1397,9 +1462,16 @@ function BankBranchCodeManagement() {
   const [branches, setBranches] = useState([]);
   const [form, setForm] = useState(emptyBranchForm);
   const [editingBranch, setEditingBranch] = useState(null);
+  const [branchSearchTerm, setBranchSearchTerm] = useState("");
   const [status, setStatus] = useState({ type: "", message: "Loading bank branch codes..." });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const normalizedBranchSearch = branchSearchTerm.trim().toLowerCase();
+  const displayedBranches = normalizedBranchSearch
+    ? branches.filter((branch) =>
+        [branch.code, branch.branch].some((value) => String(value || "").toLowerCase().includes(normalizedBranchSearch))
+      )
+    : branches;
 
   const loadBranches = async () => {
     setLoading(true);
@@ -1520,6 +1592,21 @@ function BankBranchCodeManagement() {
         <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
       ) : null}
 
+      <div className="account-code-search-row">
+        <label>
+          <span>Search Branch Code</span>
+          <input
+            type="search"
+            value={branchSearchTerm}
+            onChange={(event) => setBranchSearchTerm(event.target.value)}
+            placeholder="Search by code or branch name"
+          />
+        </label>
+        <span>
+          {displayedBranches.length} of {branches.length} shown
+        </span>
+      </div>
+
       <div className="table-wrap">
         <table className="department-table">
           <thead>
@@ -1530,30 +1617,38 @@ function BankBranchCodeManagement() {
             </tr>
           </thead>
           <tbody>
-            {branches.map((branch) => (
+            {displayedBranches.map((branch) => (
               <tr key={branch.id}>
                 <td>{branch.code}</td>
                 <td>{branch.branch}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => {
-                      setEditingBranch(branch);
-                      setForm({ code: branch.code, branch: branch.branch });
-                      setStatus({ type: "", message: "" });
-                    }} title="Edit branch">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeBranch(branch)} title="Delete branch">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for branch code ${branch.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        setEditingBranch(branch);
+                        setForm({ code: branch.code, branch: branch.branch });
+                        setStatus({ type: "", message: "" });
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeBranch(branch);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
 
-            {!branches.length && !loading ? (
+            {!displayedBranches.length && !loading ? (
               <tr>
-                <td colSpan="3">No branch codes found.</td>
+                <td colSpan="3">{branchSearchTerm ? "No matching branch codes found." : "No branch codes found."}</td>
               </tr>
             ) : null}
           </tbody>
@@ -1568,9 +1663,17 @@ function AccountCodeManagement() {
   const [accountCodes, setAccountCodes] = useState([]);
   const [form, setForm] = useState(emptyAccountForm);
   const [editingAccountCode, setEditingAccountCode] = useState(null);
+  const [accountSearchTerm, setAccountSearchTerm] = useState("");
   const [status, setStatus] = useState({ type: "", message: "Loading account codes..." });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const normalizedAccountSearch = accountSearchTerm.trim().toLowerCase();
+  const displayedAccountCodes = normalizedAccountSearch
+    ? accountCodes.filter((accountCode) =>
+        [accountCode.code, accountCode.designation]
+          .some((value) => String(value || "").toLowerCase().includes(normalizedAccountSearch))
+      )
+    : accountCodes;
 
   const loadAccountCodes = async () => {
     setLoading(true);
@@ -1581,7 +1684,7 @@ function AccountCodeManagement() {
       setAccountCodes(records);
       setStatus({
         type: "success",
-        message: records.length ? `${records.length} account code(s) found.` : "No account codes found."
+        message: records.length ? `${records.length} account code(s) loaded.` : "No account codes found."
       });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -1698,6 +1801,21 @@ function AccountCodeManagement() {
         <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
       ) : null}
 
+      <div className="account-code-search-row">
+        <label>
+          <span>Search Account Code</span>
+          <input
+            type="search"
+            value={accountSearchTerm}
+            onChange={(event) => setAccountSearchTerm(event.target.value)}
+            placeholder="Search by code or name"
+          />
+        </label>
+        <span>
+          {displayedAccountCodes.length} of {accountCodes.length} shown
+        </span>
+      </div>
+
       <div className="table-wrap">
         <table className="department-table">
           <thead>
@@ -1708,30 +1826,38 @@ function AccountCodeManagement() {
             </tr>
           </thead>
           <tbody>
-            {accountCodes.map((accountCode) => (
+            {displayedAccountCodes.map((accountCode) => (
               <tr key={accountCode.id}>
                 <td>{accountCode.code}</td>
                 <td>{accountCode.designation}</td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => {
-                      setEditingAccountCode(accountCode);
-                      setForm({ code: accountCode.code, designation: accountCode.designation });
-                      setStatus({ type: "", message: "" });
-                    }} title="Edit account code">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeAccountCode(accountCode)} title="Delete account code">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for account code ${accountCode.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        setEditingAccountCode(accountCode);
+                        setForm({ code: accountCode.code, designation: accountCode.designation });
+                        setStatus({ type: "", message: "" });
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeAccountCode(accountCode);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
 
-            {!accountCodes.length && !loading ? (
+            {!displayedAccountCodes.length && !loading ? (
               <tr>
-                <td colSpan="3">No account codes found.</td>
+                <td colSpan="3">{accountSearchTerm ? "No matching account codes found." : "No account codes found."}</td>
               </tr>
             ) : null}
           </tbody>
@@ -2079,14 +2205,24 @@ function WageCodeMaster() {
                     : "-"}
                 </td>
                 <td>
-                  <div className="row-icon-actions">
-                    <button type="button" onClick={() => startEdit(wageCode)} title="Edit wage code">
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" onClick={() => removeWageCode(wageCode.code)} title="Delete wage code">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <select
+                    className="wage-action-select"
+                    value=""
+                    aria-label={`Actions for wage code ${wageCode.code}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEdit(wageCode);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeWageCode(wageCode.code);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
                 </td>
               </tr>
             ))}
@@ -2122,7 +2258,7 @@ function ResetDataPanel() {
       return;
     }
 
-    if (!window.confirm("This will delete saved payroll, employee, and code master data. Continue?")) {
+    if (!window.confirm("This will delete saved payroll, employee, arrear, and budget data. Management code lists will be kept. Continue?")) {
       return;
     }
 
@@ -2153,8 +2289,8 @@ function ResetDataPanel() {
 
       <form className="reset-data-form" onSubmit={handleReset}>
         <p>
-          This will clear saved employees, allowances, wage codes, department/designation codes,
-          bank codes, branch codes, account codes, and chart of accounts data.
+          This will clear saved employees, allowances, payroll runs, arrear bills,
+          budget transactions, special pay, and cheque print records. Management code lists will not be reset.
         </p>
 
         <label>
@@ -2318,6 +2454,7 @@ function PayAllowancesEntry() {
   const [employeeCode, setEmployeeCode] = useState("");
   const [employee, setEmployee] = useState(null);
   const [allowances, setAllowances] = useState(defaultAllowanceRows);
+  const [allowanceCodes, setAllowanceCodes] = useState([]);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2362,9 +2499,35 @@ function PayAllowancesEntry() {
     }
   };
 
+  const loadAllowanceCodes = async () => {
+    try {
+      const result = await getWageCodes();
+      setAllowanceCodes(
+        result.filter((wageCode) =>
+          ["Allowance Codes", "Pay & Allowance Adjustment Codes"].includes(wageCode.category)
+        )
+      );
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
   const updateAllowance = (rowIndex, field, value) => {
     setAllowances((current) =>
-      current.map((row, index) => (index === rowIndex ? { ...row, [field]: value } : row))
+      current.map((row, index) => {
+        if (index !== rowIndex) {
+          return row;
+        }
+
+        const nextRow = { ...row, [field]: value };
+
+        if (field === "allowanceCode") {
+          const matchedCode = allowanceCodes.find((allowanceCode) => allowanceCode.code === value);
+          nextRow.description = matchedCode ? matchedCode.description : row.description;
+        }
+
+        return nextRow;
+      })
     );
   };
 
@@ -2407,6 +2570,10 @@ function PayAllowancesEntry() {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    loadAllowanceCodes();
+  }, []);
 
   return (
     <section className="allowance-entry-panel" aria-label="Pay allowances entry">
@@ -2490,8 +2657,10 @@ function PayAllowancesEntry() {
                 <td>{index + 1}</td>
                 <td>
                   <input
+                    list="pay-allowance-code-options"
                     value={row.allowanceCode}
                     onChange={(event) => updateAllowance(index, "allowanceCode", event.target.value)}
+                    placeholder="Select or type"
                   />
                 </td>
                 <td>
@@ -2533,6 +2702,13 @@ function PayAllowancesEntry() {
             ))}
           </tbody>
         </table>
+        <datalist id="pay-allowance-code-options">
+          {allowanceCodes.map((allowanceCode) => (
+            <option value={allowanceCode.code} key={allowanceCode.code}>
+              {allowanceCode.description}
+            </option>
+          ))}
+        </datalist>
       </div>
 
       <div className="allowance-actions">
@@ -2846,6 +3022,23 @@ function ArrearBillEntry() {
   const [filters, setFilters] = useState({ search: "", status: "" });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [toast, setToast] = useState({ type: "", message: "" });
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [showEntryForm, setShowEntryForm] = useState(false);
+  const [showPrintPanel, setShowPrintPanel] = useState(false);
+  const [printFilters, setPrintFilters] = useState({
+    employeeCode: "",
+    employeeName: "",
+    fromDate: today,
+    toDate: today
+  });
+  const [specialPrintFilters, setSpecialPrintFilters] = useState({
+    status: "finalized",
+    fromDate: today,
+    toDate: today
+  });
+  const [printReport, setPrintReport] = useState({ bills: [], grandTotal: 0, loaded: false });
+  const [showSpecialPrintPanel, setShowSpecialPrintPanel] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   const isDraft = form.status === "draft";
@@ -2909,6 +3102,16 @@ function ArrearBillEntry() {
     await loadNextDocumentNo();
   };
 
+  const openEntryForm = async () => {
+    await resetForm();
+    setShowEntryForm(true);
+  };
+
+  const closeEntryForm = async () => {
+    await resetForm();
+    setShowEntryForm(false);
+  };
+
   const lookupEmployee = async () => {
     if (!form.employeeCode.trim()) {
       setStatus({ type: "error", message: "Employee code is required." });
@@ -2960,6 +3163,11 @@ function ArrearBillEntry() {
   };
 
   const addRow = () => {
+    if (!isDraft) {
+      showToast("error", "Finalized arrear bills cannot be edited.");
+      return;
+    }
+
     setForm((current) => ({
       ...current,
       items: [...current.items, emptyArrearRow(current.items.length)]
@@ -2967,11 +3175,19 @@ function ArrearBillEntry() {
   };
 
   const removeRow = (rowIndex) => {
+    if (!isDraft) {
+      showToast("error", "Finalized arrear bills cannot be edited.");
+      return;
+    }
+
     setForm((current) => ({
       ...current,
-      items: current.items
-        .filter((_item, index) => index !== rowIndex)
-        .map((item, index) => ({ ...item, srNo: index + 1, periodNo: item.periodNo || index + 1 }))
+      items:
+        current.items.length === 1
+          ? [emptyArrearRow()]
+          : current.items
+              .filter((_item, index) => index !== rowIndex)
+              .map((item, index) => ({ ...item, srNo: index + 1, periodNo: item.periodNo || index + 1 }))
     }));
   };
 
@@ -2995,7 +3211,7 @@ function ArrearBillEntry() {
     return "";
   };
 
-  const saveBill = async () => {
+  const saveBill = async (closeAfterSave = false) => {
     const validationMessage = validateForm();
 
     if (validationMessage) {
@@ -3037,6 +3253,10 @@ function ArrearBillEntry() {
       });
       showToast("success", result.message);
       await loadBills();
+      if (closeAfterSave) {
+        await resetForm();
+        setShowEntryForm(false);
+      }
       return savedBill;
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -3047,6 +3267,20 @@ function ArrearBillEntry() {
     }
   };
 
+  const finalizeSavedBill = async (savedBill) => {
+    try {
+      const result = await finalizeArrearBill(savedBill.id);
+      showToast("success", result.message);
+      await loadBills();
+      await loadBillIntoForm(result.data);
+      await resetForm();
+      setShowEntryForm(false);
+    } catch (error) {
+      showToast("error", error.message);
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
   const finalizeBill = async () => {
     const savedBill = form.id ? form : await saveBill();
 
@@ -3054,12 +3288,41 @@ function ArrearBillEntry() {
       return;
     }
 
-    if (!window.confirm("Finalize this arrear bill? It will be locked from editing.")) {
+    setConfirmDialog({
+      tone: "success",
+      title: "Finalize Arrear Bill",
+      message: "Finalize this arrear bill? It will be locked from editing.",
+      confirmLabel: "Finalize",
+      onConfirm: () => finalizeSavedBill(savedBill)
+    });
+  };
+
+  const updateBillStatus = async (nextStatus) => {
+    if (nextStatus === form.status) {
+      return;
+    }
+
+    if (!form.id && nextStatus === "draft") {
+      return;
+    }
+
+    if (!form.id && nextStatus === "cancelled") {
+      showToast("error", "Save the arrear bill before cancelling it.");
+      return;
+    }
+
+    if (isDraft && nextStatus === "finalized") {
+      const savedBill = await saveBill();
+      if (!savedBill?.id) {
+        return;
+      }
+
+      await finalizeSavedBill(savedBill);
       return;
     }
 
     try {
-      const result = await finalizeArrearBill(savedBill.id);
+      const result = await updateArrearBillStatus(form.id, nextStatus);
       showToast("success", result.message);
       await loadBills();
       await loadBillIntoForm(result.data);
@@ -3069,20 +3332,65 @@ function ArrearBillEntry() {
     }
   };
 
-  const deleteBill = async () => {
-    if (!form.id || !window.confirm(`Delete document #${form.documentNo}?`)) {
+  const updateListBillStatus = async (bill, nextStatus) => {
+    if (nextStatus === bill.status) {
       return;
     }
 
+    try {
+      const result = await updateArrearBillStatus(bill.id, nextStatus);
+      showToast("success", result.message);
+      await loadBills();
+
+      if (form.id === bill.id) {
+        await loadBillIntoForm(result.data);
+      }
+    } catch (error) {
+      showToast("error", error.message);
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const deleteSavedBill = async () => {
     try {
       const result = await deleteArrearBill(form.id);
       showToast("success", result.message);
       await loadBills();
       await resetForm();
+      setShowEntryForm(false);
     } catch (error) {
       showToast("error", error.message);
       setStatus({ type: "error", message: error.message });
     }
+  };
+
+  const deleteBillFromList = async (bill) => {
+    try {
+      const result = await deleteArrearBill(bill.id);
+      showToast("success", result.message);
+      await loadBills();
+
+      if (form.id === bill.id) {
+        await resetForm();
+      }
+    } catch (error) {
+      showToast("error", error.message);
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const deleteBill = async () => {
+    if (!form.id) {
+      return;
+    }
+
+    setConfirmDialog({
+      tone: "danger",
+      title: "Delete Arrear Bill",
+      message: `Delete document #${form.documentNo}?`,
+      confirmLabel: "Delete",
+      onConfirm: deleteSavedBill
+    });
   };
 
   const loadBillIntoForm = async (bill) => {
@@ -3106,6 +3414,122 @@ function ArrearBillEntry() {
     setStatus({ type: "", message: "" });
   };
 
+  const updatePrintFilter = (event) => {
+    const { name, value } = event.target;
+    setPrintFilters((current) => ({
+      ...current,
+      [name]: value,
+      ...(name === "employeeCode" ? { employeeName: "" } : {})
+    }));
+  };
+
+  const updateSpecialPrintFilter = (event) => {
+    const { name, value } = event.target;
+    setSpecialPrintFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  const loadPrintEmployee = async () => {
+    if (!printFilters.employeeCode.trim()) {
+      setStatus({ type: "error", message: "Employee code is required for printing." });
+      return null;
+    }
+
+    try {
+      const employee = await getEmployeeByCode(printFilters.employeeCode.trim());
+      setPrintFilters((current) => ({ ...current, employeeName: employee.name }));
+      setStatus({ type: "", message: "" });
+      return employee;
+    } catch (error) {
+      setPrintFilters((current) => ({ ...current, employeeName: "" }));
+      setStatus({ type: "error", message: error.message });
+      return null;
+    }
+  };
+
+  const printArrearBills = async () => {
+    if (!printFilters.employeeCode.trim()) {
+      setStatus({ type: "error", message: "Employee code is required for printing." });
+      return;
+    }
+
+    if (!printFilters.fromDate || !printFilters.toDate) {
+      setStatus({ type: "error", message: "From date and end date are required." });
+      return;
+    }
+
+    if (printFilters.fromDate > printFilters.toDate) {
+      setStatus({ type: "error", message: "From date cannot be after end date." });
+      return;
+    }
+
+    setPrinting(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const employee = printFilters.employeeName ? null : await loadPrintEmployee();
+
+      if (!printFilters.employeeName && !employee) {
+        return;
+      }
+
+      const result = await getArrearBillReport({
+        employeeCode: printFilters.employeeCode.trim(),
+        fromDate: printFilters.fromDate,
+        toDate: printFilters.toDate,
+        sortBy: "doc_no"
+      });
+      setPrintReport({
+        bills: result.data || [],
+        grandTotal: result.grand_total || 0,
+        loaded: true
+      });
+      setShowEntryForm(false);
+      window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      setPrintReport({ bills: [], grandTotal: 0, loaded: false });
+      setStatus({ type: "error", message: error.message || "Arrear bills not found." });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const printSpecialArrearBills = async () => {
+    if (!specialPrintFilters.fromDate || !specialPrintFilters.toDate) {
+      setStatus({ type: "error", message: "From date and end date are required." });
+      return;
+    }
+
+    if (specialPrintFilters.fromDate > specialPrintFilters.toDate) {
+      setStatus({ type: "error", message: "From date cannot be after end date." });
+      return;
+    }
+
+    setPrinting(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await getArrearBillReport({
+        employeeCode: "0",
+        fromDate: specialPrintFilters.fromDate,
+        toDate: specialPrintFilters.toDate,
+        status: specialPrintFilters.status,
+        sortBy: "employee_code"
+      });
+      setPrintReport({
+        bills: result.data || [],
+        grandTotal: result.grand_total || 0,
+        loaded: true
+      });
+      setShowEntryForm(false);
+      window.setTimeout(() => window.print(), 150);
+    } catch (error) {
+      setPrintReport({ bills: [], grandTotal: 0, loaded: false });
+      setStatus({ type: "error", message: error.message || "Arrear bills not found." });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   useEffect(() => {
     loadNextDocumentNo();
     loadWageCodes();
@@ -3115,125 +3539,257 @@ function ArrearBillEntry() {
   return (
     <section className="employee-entry-panel arrear-entry-panel" aria-label="Arrear bill entry">
       {toast.message ? <div className={`toast-notice ${toast.type}`}>{toast.message}</div> : null}
-      <div className="form-title-row">
+      {confirmDialog ? (
+        <div className="modal-backdrop soft-modal-backdrop" role="dialog" aria-modal="true" aria-label={confirmDialog.title}>
+          <div className={`confirm-modal ${confirmDialog.tone || "neutral"}`}>
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Confirmation</p>
+              <h3>{confirmDialog.title}</h3>
+              <span>{confirmDialog.message}</span>
+            </div>
+            <div className="confirm-modal-actions">
+              <button type="button" onClick={() => setConfirmDialog(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const action = confirmDialog.onConfirm;
+                  setConfirmDialog(null);
+                  await action();
+                }}
+              >
+                {confirmDialog.confirmLabel || "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="form-title-row no-print">
         <div>
           <p>Arrear Bill</p>
           <h2>Arrear Bill Entry</h2>
         </div>
-        <span className={`bill-status-badge ${form.status}`}>{form.status}</span>
+        <div className="title-actions">
+          {showEntryForm ? <span className={`bill-status-badge ${form.status}`}>{form.status}</span> : null}
+          <button className="refresh-button" type="button" onClick={openEntryForm}>
+            Enter Arrear Bill
+          </button>
+        </div>
       </div>
 
-      <div className="arrear-header-grid">
-        <label>
-          <span>Date</span>
-          <input type="date" name="billDate" value={form.billDate} onChange={updateHeader} disabled={!isDraft} />
-        </label>
-        <label>
-          <span>Document #</span>
-          <input readOnly value={form.documentNo || ""} />
-        </label>
-        <label>
-          <span>Place Of Posting</span>
-          <input name="placeOfPosting" value={form.placeOfPosting} onChange={updateHeader} disabled={!isDraft} />
-        </label>
-        <label>
-          <span>Employee Code</span>
-          <div className="inline-lookup">
-            <input
-              type="number"
-              name="employeeCode"
-              value={form.employeeCode}
-              onChange={updateHeader}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  lookupEmployee();
-                }
-              }}
-              disabled={!isDraft}
-            />
-            <button type="button" onClick={lookupEmployee} disabled={loadingEmployee || !isDraft}>
-              {loadingEmployee ? "..." : "Load"}
-            </button>
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+
+      {showEntryForm ? (
+        <>
+          <div className="arrear-header-grid">
+            <label>
+              <span>Date</span>
+              <input type="date" name="billDate" value={form.billDate} onChange={updateHeader} disabled={!isDraft} />
+            </label>
+            <label>
+              <span>Document #</span>
+              <input readOnly value={form.documentNo || ""} />
+            </label>
+            <label>
+              <span>Status</span>
+              <select name="status" value={form.status} onChange={(event) => updateBillStatus(event.target.value)} disabled={saving}>
+                <option value="draft">Draft</option>
+                <option value="finalized">Finalized</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label>
+              <span>Place Of Posting</span>
+              <input name="placeOfPosting" value={form.placeOfPosting} onChange={updateHeader} disabled={!isDraft} />
+            </label>
+            <label>
+              <span>Employee Code</span>
+              <div className="inline-lookup">
+                <input
+                  type="number"
+                  name="employeeCode"
+                  value={form.employeeCode}
+                  onChange={updateHeader}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      lookupEmployee();
+                    }
+                  }}
+                  disabled={!isDraft}
+                />
+                <button type="button" onClick={lookupEmployee} disabled={loadingEmployee || !isDraft}>
+                  {loadingEmployee ? "..." : "Load"}
+                </button>
+              </div>
+            </label>
+            <label className="wide-field">
+              <span>Employee Name</span>
+              <input readOnly value={form.employeeName} />
+            </label>
           </div>
-        </label>
-        <label className="wide-field">
-          <span>Employee Name</span>
-          <input readOnly value={form.employeeName} />
-        </label>
-      </div>
 
-      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+          <div className="table-wrap arrear-table-wrap">
+            <table className="arrear-entry-table">
+              <thead>
+                <tr>
+                  <th>Sr#</th>
+                  <th>P#</th>
+                  <th>Period</th>
+                  <th>A/C Code</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {form.items.map((item, index) => (
+                  <tr key={`${item.srNo}-${index}`}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <input type="number" min="1" value={item.periodNo} onChange={(event) => updateItem(index, "periodNo", event.target.value)} disabled={!isDraft} />
+                    </td>
+                    <td>
+                      <input value={item.periodLabel} onChange={(event) => updateItem(index, "periodLabel", event.target.value)} placeholder="Jan-2026" disabled={!isDraft} />
+                    </td>
+                    <td>
+                      <select value={item.accountCode} onChange={(event) => updateItem(index, "accountCode", event.target.value)} disabled={!isDraft}>
+                        <option value="">Select</option>
+                        {wageCodes.map((wageCode) => (
+                          <option value={wageCode.code} key={wageCode.code}>
+                            {wageCode.code} - {wageCode.description}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input value={item.description} onChange={(event) => updateItem(index, "description", event.target.value)} disabled={!isDraft} />
+                    </td>
+                    <td>
+                      <input type="number" min="0" step="0.01" value={item.amount} onChange={(event) => updateItem(index, "amount", event.target.value)} disabled={!isDraft} />
+                    </td>
+                    <td>
+                      <button className="table-danger-button" type="button" onClick={() => removeRow(index)}>
+                        {form.items.length === 1 ? "Clear" : "Remove"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="table-wrap arrear-table-wrap">
-        <table className="arrear-entry-table">
-          <thead>
-            <tr>
-              <th>Sr#</th>
-              <th>P#</th>
-              <th>Period</th>
-              <th>A/C Code</th>
-              <th>Description</th>
-              <th>Amount</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {form.items.map((item, index) => (
-              <tr key={`${item.srNo}-${index}`}>
-                <td>{index + 1}</td>
-                <td>
-                  <input type="number" min="1" value={item.periodNo} onChange={(event) => updateItem(index, "periodNo", event.target.value)} disabled={!isDraft} />
-                </td>
-                <td>
-                  <input value={item.periodLabel} onChange={(event) => updateItem(index, "periodLabel", event.target.value)} placeholder="Jan-2026" disabled={!isDraft} />
-                </td>
-                <td>
-                  <select value={item.accountCode} onChange={(event) => updateItem(index, "accountCode", event.target.value)} disabled={!isDraft}>
-                    <option value="">Select</option>
-                    {wageCodes.map((wageCode) => (
-                      <option value={wageCode.code} key={wageCode.code}>
-                        {wageCode.code} - {wageCode.description}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <input value={item.description} onChange={(event) => updateItem(index, "description", event.target.value)} disabled={!isDraft} />
-                </td>
-                <td>
-                  <input type="number" min="0" step="0.01" value={item.amount} onChange={(event) => updateItem(index, "amount", event.target.value)} disabled={!isDraft} />
-                </td>
-                <td>
-                  <button className="table-danger-button" type="button" onClick={() => removeRow(index)} disabled={!isDraft || form.items.length === 1}>
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="arrear-footer-row">
+            <button className="refresh-button" type="button" onClick={addRow}>Add Row</button>
+            <strong>Total: PKR {totalAmount.toLocaleString()}</strong>
+          </div>
 
-      <div className="arrear-footer-row">
-        <button className="refresh-button" type="button" onClick={addRow} disabled={!isDraft}>Add Row</button>
-        <strong>Total: PKR {totalAmount.toLocaleString()}</strong>
-      </div>
+          <div className="form-actions">
+            <button type="button" onClick={closeEntryForm}>Cancel</button>
+            <button type="button" onClick={() => saveBill(true)} disabled={saving || !isDraft}>{saving ? "Saving..." : "Save Draft"}</button>
+            <button type="button" onClick={finalizeBill} disabled={!isDraft}>Finalize</button>
+            <button type="button" onClick={deleteBill} disabled={!form.id || !isDraft}>Delete</button>
+          </div>
+        </>
+      ) : null}
 
-      <div className="form-actions">
-        <button type="button" onClick={resetForm}>Cancel</button>
-        <button type="button" onClick={saveBill} disabled={saving || !isDraft}>{saving ? "Saving..." : "Save Draft"}</button>
-        <button type="button" onClick={finalizeBill} disabled={!isDraft}>Finalize</button>
-        <button type="button" onClick={deleteBill} disabled={!form.id || !isDraft}>Delete</button>
-      </div>
-
-      <div className="arrear-list-section">
+      <div className="arrear-list-section no-print">
         <div className="form-title-row compact-title-row">
           <div>
             <p>Saved Bills</p>
             <h2>Previous Arrear Bills</h2>
           </div>
+          <div className="title-actions">
+            <button className="refresh-button" type="button" onClick={() => setShowPrintPanel((current) => !current)}>
+              Print
+            </button>
+            <button className="refresh-button" type="button" onClick={() => setShowSpecialPrintPanel((current) => !current)}>
+              Special Print
+            </button>
+          </div>
         </div>
+        {showPrintPanel ? (
+          <div className="inline-print-panel">
+            <label>
+              <span>Employee Code</span>
+              <input
+                name="employeeCode"
+                type="text"
+                value={printFilters.employeeCode}
+                onChange={updatePrintFilter}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    loadPrintEmployee();
+                  }
+                }}
+                placeholder="Enter employee code"
+              />
+            </label>
+            <label>
+              <span>Employee Name</span>
+              <input readOnly value={printFilters.employeeName} placeholder="Employee name" />
+            </label>
+            <label>
+              <span>From Date</span>
+              <input type="date" name="fromDate" value={printFilters.fromDate} onChange={updatePrintFilter} />
+            </label>
+            <label>
+              <span>End Date</span>
+              <input type="date" name="toDate" value={printFilters.toDate} onChange={updatePrintFilter} />
+            </label>
+            <div className="report-filter-actions">
+              <button type="button" onClick={loadPrintEmployee} disabled={printing}>
+                Load
+              </button>
+              <button type="button" onClick={printArrearBills} disabled={printing}>
+                {printing ? "Loading..." : "Print"}
+              </button>
+              <button type="button" onClick={() => {
+                setPrintFilters({ employeeCode: "", employeeName: "", fromDate: today, toDate: today });
+                setPrintReport({ bills: [], grandTotal: 0, loaded: false });
+                setShowPrintPanel(false);
+              }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {showSpecialPrintPanel ? (
+          <div className="inline-print-panel special-print-panel">
+            <label>
+              <span>Status</span>
+              <select name="status" value={specialPrintFilters.status} onChange={updateSpecialPrintFilter}>
+                <option value="">All</option>
+                <option value="draft">Draft</option>
+                <option value="finalized">Finalized</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label>
+              <span>From Date</span>
+              <input type="date" name="fromDate" value={specialPrintFilters.fromDate} onChange={updateSpecialPrintFilter} />
+            </label>
+            <label>
+              <span>End Date</span>
+              <input type="date" name="toDate" value={specialPrintFilters.toDate} onChange={updateSpecialPrintFilter} />
+            </label>
+            <div className="report-filter-actions">
+              <button type="button" onClick={printSpecialArrearBills} disabled={printing}>
+                {printing ? "Loading..." : "Print"}
+              </button>
+              <button type="button" onClick={() => {
+                setSpecialPrintFilters({ status: "finalized", fromDate: today, toDate: today });
+                setPrintReport({ bills: [], grandTotal: 0, loaded: false });
+                setShowSpecialPrintPanel(false);
+              }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="table-toolbar arrear-filter-toolbar">
           <label>
             <span>Search</span>
@@ -3268,18 +3824,46 @@ function ArrearBillEntry() {
                   <td>{bill.billDate}</td>
                   <td>{bill.employeeName} ({bill.employeeCode})</td>
                   <td>PKR {Number(bill.totalAmount || 0).toLocaleString()}</td>
-                  <td>{bill.status}</td>
                   <td>
-                    <button className="refresh-button" type="button" onClick={async () => {
-                      try {
-                        const result = await getArrearBill(bill.id);
-                        await loadBillIntoForm(result.data);
-                      } catch (error) {
-                        showToast("error", error.message);
-                      }
-                    }}>
-                      View/Edit
-                    </button>
+                    <select
+                      className="table-status-select"
+                      value={bill.status}
+                      onChange={(event) => updateListBillStatus(bill, event.target.value)}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="finalized">Finalized</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </td>
+                  <td>
+                    <div className="arrear-list-actions">
+                      <button className="refresh-button" type="button" onClick={async () => {
+                        try {
+                          const result = await getArrearBill(bill.id);
+                          await loadBillIntoForm(result.data);
+                          setShowEntryForm(true);
+                        } catch (error) {
+                          showToast("error", error.message);
+                        }
+                      }}>
+                        View/Edit
+                      </button>
+                      <button
+                        className="table-danger-button"
+                        type="button"
+                        onClick={() => setConfirmDialog({
+                          tone: "danger",
+                          title: "Delete Arrear Bill",
+                          message: `Delete document #${bill.documentNo}?`,
+                          confirmLabel: "Delete",
+                          onConfirm: () => deleteBillFromList(bill)
+                        })}
+                        disabled={bill.status !== "draft"}
+                        title={bill.status === "draft" ? "Delete draft bill" : "Only draft bills can be deleted"}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -3292,6 +3876,19 @@ function ArrearBillEntry() {
           </table>
         </div>
       </div>
+      {printReport.loaded ? (
+        <ArrearBillReportView
+          bills={printReport.bills}
+          groupBy={showSpecialPrintPanel ? "employee_code" : "doc_no"}
+          filters={{
+            employeeCode: showSpecialPrintPanel ? "0" : printFilters.employeeCode,
+            fromDate: showSpecialPrintPanel ? specialPrintFilters.fromDate : printFilters.fromDate,
+            toDate: showSpecialPrintPanel ? specialPrintFilters.toDate : printFilters.toDate,
+            status: showSpecialPrintPanel ? specialPrintFilters.status : ""
+          }}
+          grandTotal={printReport.grandTotal}
+        />
+      ) : null}
     </section>
   );
 }
@@ -3328,10 +3925,13 @@ function groupBillsByEmployee(bills) {
 function ReportLetterhead({ title, filterSummary }) {
   return (
     <div className="report-letterhead">
-      <h2>Wazirabad Institute Of Cardiology</h2>
-      <p>Hospital Payroll System</p>
-      <h3>{title}</h3>
-      <span>{filterSummary}</span>
+      <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+      <div>
+        <h2>Wazirabad Institute Of Cardiology</h2>
+        <p>Hospital Payroll System</p>
+        <h3>{title}</h3>
+        <span>{filterSummary}</span>
+      </div>
     </div>
   );
 }
@@ -3371,7 +3971,8 @@ function ArrearBillReportView({ bills, groupBy, filters, grandTotal }) {
   const employeeSummary = filters.employeeCode?.trim() && filters.employeeCode.trim() !== "0"
     ? `Employee No: ${filters.employeeCode.trim()}`
     : "Employee: All";
-  const filterSummary = `${filters.fromDate} to ${filters.toDate} | ${employeeSummary}`;
+  const statusSummary = filters.status ? ` | Status: ${filters.status}` : "";
+  const filterSummary = `${filters.fromDate} to ${filters.toDate} | ${employeeSummary}${statusSummary}`;
   const employeeGroups = groupBillsByEmployee(bills);
 
   return (
@@ -3583,9 +4184,11 @@ function BudgetExpenseEntry() {
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState({ totalOriginal: 0, totalSupplementary: 0, totalBudget: 0 });
-  const [filters, setFilters] = useState({ search: "", budgetType: "", status: "" });
+  const [filters, setFilters] = useState({ search: "", budgetTypes: [], statuses: [] });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [toast, setToast] = useState({ type: "", message: "" });
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [showQuickFilter, setShowQuickFilter] = useState(false);
   const [saving, setSaving] = useState(false);
   const isDraft = form.status === "draft";
   const totalAmount = form.items.reduce((total, item) => total + Number(item.amount || 0), 0);
@@ -3597,14 +4200,137 @@ function BudgetExpenseEntry() {
       transaction.budgetType,
       transaction.status
     ].some((value) => String(value || "").toLowerCase().includes(query));
-    const matchesType = !filters.budgetType || transaction.budgetType === filters.budgetType;
-    const matchesStatus = !filters.status || transaction.status === filters.status;
+    const matchesType = !filters.budgetTypes.length || filters.budgetTypes.includes(transaction.budgetType);
+    const matchesStatus = !filters.statuses.length || filters.statuses.includes(transaction.status);
     return matchesSearch && matchesType && matchesStatus;
   });
 
   const showToast = (type, message) => {
     setToast({ type, message });
     window.setTimeout(() => setToast({ type: "", message: "" }), 2600);
+  };
+
+  const runConfirmedAction = async () => {
+    const action = confirmDialog?.onConfirm;
+    setConfirmDialog(null);
+
+    if (action) {
+      await action();
+    }
+  };
+
+  const toggleQuickFilter = (group, value) => {
+    setFilters((current) => {
+      const activeValues = current[group];
+      const nextValues = activeValues.includes(value)
+        ? activeValues.filter((item) => item !== value)
+        : [...activeValues, value];
+
+      return { ...current, [group]: nextValues };
+    });
+  };
+
+  const clearQuickFilters = () => {
+    setFilters((current) => ({ ...current, budgetTypes: [], statuses: [] }));
+  };
+
+  const quickFilterCount = filters.budgetTypes.length + filters.statuses.length;
+
+  const printBudgetTransactionList = () => {
+    const typeLabel = filters.budgetTypes.length
+      ? filters.budgetTypes.map((type) => (type === "original" ? "Original" : "Supplementary")).join(", ")
+      : "All Types";
+    const statusLabel = filters.statuses.length
+      ? filters.statuses.map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(", ")
+      : "All Statuses";
+    const searchLabel = filters.search.trim() ? `Search: ${filters.search.trim()} | ` : "";
+    const rowsHtml = filteredTransactions.length
+      ? filteredTransactions
+          .map(
+            (transaction) => `
+              <tr>
+                <td>${transaction.documentNo || ""}</td>
+                <td>${transaction.transactionDate || ""}</td>
+                <td>${transaction.budgetType === "original" ? "Original" : "Supplementary"}</td>
+                <td>${transaction.details || "-"}</td>
+                <td class="amount">PKR ${Number(transaction.totalAmount || 0).toLocaleString()}</td>
+                <td>${transaction.status || ""}</td>
+              </tr>
+            `
+          )
+          .join("")
+      : `<tr><td colspan="6" class="empty-row">No budget transactions found.</td></tr>`;
+    const grandTotal = filteredTransactions.reduce((total, transaction) => total + Number(transaction.totalAmount || 0), 0);
+    const reportWindow = window.open("", "_blank", "width=1100,height=750");
+
+    if (!reportWindow) {
+      showToast("error", "Please allow popups to print the budget list.");
+      return;
+    }
+
+    reportWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Budget Transaction List</title>
+          <style>
+            body { margin: 24px; color: #17383c; font-family: Arial, sans-serif; }
+            .letterhead { display: grid; grid-template-columns: 72px 1fr; gap: 14px; align-items: center; border-bottom: 3px solid #0b746b; padding-bottom: 14px; margin-bottom: 18px; }
+            .letterhead img { width: 64px; height: 64px; object-fit: contain; border: 1px solid #d8e4e2; border-radius: 8px; padding: 5px; }
+            .letterhead p { margin: 0 0 4px; color: #5f7478; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+            .letterhead h1 { margin: 0; color: #0b3438; font-size: 26px; }
+            .summary { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 14px; color: #31474c; font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            th { background: #103f43; color: #fff; text-align: left; }
+            th, td { border: 1px solid #cfe0dd; padding: 9px 10px; }
+            .amount { text-align: right; }
+            .empty-row { text-align: center; color: #5f7478; }
+            .total-row td { font-weight: 800; background: #eef8f6; }
+            @media print { body { margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <header class="letterhead">
+            <img src="${window.location.origin}/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Wazirabad Cardiology Hospital</p>
+              <h1>Budget Transaction List</h1>
+            </div>
+          </header>
+          <div class="summary">
+            <span>${searchLabel}${typeLabel} | ${statusLabel}</span>
+            <strong>Total Records: ${filteredTransactions.length}</strong>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Document #</th>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Details</th>
+                <th>Total</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+              <tr class="total-row">
+                <td colspan="4">Grand Total</td>
+                <td class="amount">PKR ${grandTotal.toLocaleString()}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+          <script>
+            window.onload = function () {
+              window.focus();
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    reportWindow.document.close();
   };
 
   const loadNextDocumentNo = async () => {
@@ -3683,6 +4409,11 @@ function BudgetExpenseEntry() {
   };
 
   const addRow = () => {
+    if (!isDraft) {
+      showToast("error", "Finalized budget documents cannot be edited.");
+      return;
+    }
+
     setForm((current) => ({
       ...current,
       items: [...current.items, emptyBudgetRow(current.items.length)]
@@ -3690,11 +4421,19 @@ function BudgetExpenseEntry() {
   };
 
   const removeRow = (rowIndex) => {
+    if (!isDraft) {
+      showToast("error", "Finalized budget documents cannot be edited.");
+      return;
+    }
+
     setForm((current) => ({
       ...current,
-      items: current.items
-        .filter((_item, index) => index !== rowIndex)
-        .map((item, index) => ({ ...item, srNo: index + 1 }))
+      items:
+        current.items.length === 1
+          ? [emptyBudgetRow()]
+          : current.items
+              .filter((_item, index) => index !== rowIndex)
+              .map((item, index) => ({ ...item, srNo: index + 1 }))
     }));
   };
 
@@ -3757,17 +4496,7 @@ function BudgetExpenseEntry() {
     }
   };
 
-  const finalizeTransaction = async () => {
-    const savedTransaction = form.id ? form : await saveTransaction();
-
-    if (!savedTransaction?.id) {
-      return;
-    }
-
-    if (!window.confirm("Finalize this budget document? It will be locked from editing.")) {
-      return;
-    }
-
+  const finalizeSavedTransaction = async (savedTransaction) => {
     try {
       const result = await finalizeBudgetTransaction(savedTransaction.id);
       showToast("success", result.message);
@@ -3780,21 +4509,111 @@ function BudgetExpenseEntry() {
     }
   };
 
-  const deleteTransaction = async () => {
-    if (!form.id || !window.confirm(`Delete document #${form.documentNo}?`)) {
+  const finalizeTransaction = async () => {
+    const savedTransaction = form.id ? form : await saveTransaction();
+
+    if (!savedTransaction?.id) {
+      return;
+    }
+
+    setConfirmDialog({
+      tone: "success",
+      title: "Finalize Budget Document",
+      message: "Finalize this budget document? It will be locked from editing.",
+      confirmLabel: "Finalize",
+      onConfirm: () => finalizeSavedTransaction(savedTransaction)
+    });
+  };
+
+  const updateTransactionStatus = async (nextStatus) => {
+    if (nextStatus === form.status) {
+      return;
+    }
+
+    if (!form.id && nextStatus === "draft") {
+      return;
+    }
+
+    if (!form.id && nextStatus === "cancelled") {
+      showToast("error", "Save the budget document before cancelling it.");
+      return;
+    }
+
+    if (isDraft && nextStatus === "finalized") {
+      const savedTransaction = await saveTransaction();
+
+      if (!savedTransaction?.id) {
+        return;
+      }
+
+      try {
+        const result = await finalizeBudgetTransaction(savedTransaction.id);
+        showToast("success", result.message);
+        await loadTransactions();
+        await loadSummary();
+        await loadTransactionIntoForm(result.data);
+      } catch (error) {
+        showToast("error", error.message);
+        setStatus({ type: "error", message: error.message });
+      }
       return;
     }
 
     try {
-      const result = await deleteBudgetTransaction(form.id);
+      const result = await updateBudgetTransactionStatus(form.id, nextStatus);
       showToast("success", result.message);
       await loadTransactions();
       await loadSummary();
-      await resetForm();
+      await loadTransactionIntoForm(result.data);
     } catch (error) {
       showToast("error", error.message);
       setStatus({ type: "error", message: error.message });
     }
+  };
+
+  const updateListTransactionStatus = async (transaction, nextStatus) => {
+    if (nextStatus === transaction.status) {
+      return;
+    }
+
+    try {
+      const result = await updateBudgetTransactionStatus(transaction.id, nextStatus);
+      showToast("success", result.message);
+      await loadTransactions();
+      await loadSummary();
+
+      if (form.id === transaction.id) {
+        await loadTransactionIntoForm(result.data);
+      }
+    } catch (error) {
+      showToast("error", error.message);
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const deleteTransaction = async () => {
+    if (!form.id) {
+      return;
+    }
+
+    setConfirmDialog({
+      tone: "danger",
+      title: "Delete Budget Document",
+      message: `Delete document #${form.documentNo}?`,
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        try {
+          const result = await deleteBudgetTransaction(form.id);
+          showToast("success", result.message);
+          await loadTransactions();
+          await loadSummary();
+          await resetForm();
+        } catch (error) {
+          showToast("error", error.message);
+          setStatus({ type: "error", message: error.message });
+        }
+      }
+    });
   };
 
   const loadTransactionIntoForm = async (transaction) => {
@@ -3825,6 +4644,26 @@ function BudgetExpenseEntry() {
   return (
     <section className="employee-entry-panel arrear-entry-panel budget-entry-panel" aria-label="Budget entry">
       {toast.message ? <div className={`toast-notice ${toast.type}`}>{toast.message}</div> : null}
+      {confirmDialog ? (
+        <div className="modal-backdrop soft-modal-backdrop" role="dialog" aria-modal="true" aria-label={confirmDialog.title}>
+          <div className={`confirm-modal ${confirmDialog.tone || "neutral"}`}>
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Confirmation</p>
+              <h3>{confirmDialog.title}</h3>
+              <span>{confirmDialog.message}</span>
+            </div>
+            <div className="confirm-modal-actions">
+              <button type="button" onClick={() => setConfirmDialog(null)}>
+                Cancel
+              </button>
+              <button type="button" onClick={runConfirmedAction}>
+                {confirmDialog.confirmLabel || "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="form-title-row">
         <div>
           <p>Budget</p>
@@ -3862,6 +4701,14 @@ function BudgetExpenseEntry() {
           <select name="budgetType" value={form.budgetType} onChange={updateHeader} disabled={!isDraft}>
             <option value="original">Original</option>
             <option value="supplementary">Supplementary</option>
+          </select>
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status" value={form.status} onChange={(event) => updateTransactionStatus(event.target.value)} disabled={saving}>
+            <option value="draft">Draft</option>
+            <option value="finalized">Finalized</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </label>
         <label className="wide-field">
@@ -3904,8 +4751,8 @@ function BudgetExpenseEntry() {
                   <input type="number" min="0" step="0.01" value={item.amount} onChange={(event) => updateItem(index, "amount", event.target.value)} disabled={!isDraft} />
                 </td>
                 <td>
-                  <button className="table-danger-button" type="button" onClick={() => removeRow(index)} disabled={!isDraft || form.items.length === 1}>
-                    Remove
+                  <button className="table-danger-button" type="button" onClick={() => removeRow(index)}>
+                    {form.items.length === 1 ? "Clear" : "Remove"}
                   </button>
                 </td>
               </tr>
@@ -3915,7 +4762,7 @@ function BudgetExpenseEntry() {
       </div>
 
       <div className="arrear-footer-row">
-        <button className="refresh-button" type="button" onClick={addRow} disabled={!isDraft}>Add Row</button>
+        <button className="refresh-button" type="button" onClick={addRow}>Add Row</button>
         <strong>Total: PKR {totalAmount.toLocaleString()}</strong>
       </div>
 
@@ -3923,7 +4770,7 @@ function BudgetExpenseEntry() {
         <button type="button" onClick={resetForm}>Cancel</button>
         <button type="button" onClick={saveTransaction} disabled={saving || !isDraft}>{saving ? "Saving..." : "Save Draft"}</button>
         <button type="button" onClick={finalizeTransaction} disabled={!isDraft}>Finalize</button>
-        <button type="button" onClick={deleteTransaction} disabled={!form.id || !isDraft}>Delete</button>
+        <button type="button" onClick={deleteTransaction} disabled={!form.id || form.status === "finalized"}>Delete</button>
       </div>
 
       <div className="arrear-list-section">
@@ -3938,26 +4785,74 @@ function BudgetExpenseEntry() {
             <span>Search</span>
             <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Document, details, status..." />
           </label>
-          <label>
-            <span>Type</span>
-            <select value={filters.budgetType} onChange={(event) => setFilters((current) => ({ ...current, budgetType: event.target.value }))}>
-              <option value="">All</option>
-              <option value="original">Original</option>
-              <option value="supplementary">Supplementary</option>
-            </select>
-          </label>
-          <label>
-            <span>Status</span>
-            <select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
-              <option value="">All</option>
-              <option value="draft">Draft</option>
-              <option value="finalized">Finalized</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
+          <div className="quick-filter-dropdown">
+            <span>Quick Filter</span>
+            <button
+              type="button"
+              className="quick-filter-trigger"
+              onClick={() => setShowQuickFilter((current) => !current)}
+              aria-expanded={showQuickFilter}
+            >
+              {quickFilterCount ? `${quickFilterCount} selected` : "All"}
+              <ChevronDown size={16} />
+            </button>
+            {showQuickFilter ? (
+              <fieldset className="quick-filter-menu">
+                <legend>Quick Filter</legend>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filters.budgetTypes.includes("original")}
+                    onChange={() => toggleQuickFilter("budgetTypes", "original")}
+                  />
+                  Original
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filters.budgetTypes.includes("supplementary")}
+                    onChange={() => toggleQuickFilter("budgetTypes", "supplementary")}
+                  />
+                  Supplementary
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filters.statuses.includes("draft")}
+                    onChange={() => toggleQuickFilter("statuses", "draft")}
+                  />
+                  Draft
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filters.statuses.includes("finalized")}
+                    onChange={() => toggleQuickFilter("statuses", "finalized")}
+                  />
+                  Finalized
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filters.statuses.includes("cancelled")}
+                    onChange={() => toggleQuickFilter("statuses", "cancelled")}
+                  />
+                  Cancelled
+                </label>
+              </fieldset>
+            ) : null}
+          </div>
+          <div className="budget-list-actions">
+            <button className="refresh-button" type="button" onClick={printBudgetTransactionList}>
+              Print
+            </button>
+            <button type="button" onClick={clearQuickFilters}>
+              Clear Filter
+            </button>
+          </div>
         </div>
         <div className="table-wrap">
-          <table className="department-table arrear-list-table">
+          <table className="department-table arrear-list-table budget-list-table">
             <thead>
               <tr>
                 <th>Document #</th>
@@ -3977,7 +4872,17 @@ function BudgetExpenseEntry() {
                   <td>{transaction.budgetType === "original" ? "Original" : "Supplementary"}</td>
                   <td>{transaction.details || "-"}</td>
                   <td>PKR {Number(transaction.totalAmount || 0).toLocaleString()}</td>
-                  <td>{transaction.status}</td>
+                  <td>
+                    <select
+                      className="table-status-select"
+                      value={transaction.status}
+                      onChange={(event) => updateListTransactionStatus(transaction, event.target.value)}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="finalized">Finalized</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </td>
                   <td>
                     <button className="refresh-button" type="button" onClick={async () => {
                       try {
@@ -4055,12 +4960,135 @@ function UniversalDocumentPreview({ documents }) {
   );
 }
 
+function ArrearBillPrintPage() {
+  const [documentNo, setDocumentNo] = useState("");
+  const [outputSelection, setOutputSelection] = useState("screen");
+  const [bill, setBill] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const loadBill = async () => {
+    if (!documentNo) {
+      setStatus({ type: "error", message: "Document number is required." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await getDocumentByNumber(documentNo, "arrear");
+      const loadedBill = result.data?.[0] || null;
+      setBill(loadedBill);
+
+      if (outputSelection === "printer") {
+        window.setTimeout(() => window.print(), 150);
+      }
+    } catch (error) {
+      setBill(null);
+      setStatus({ type: "error", message: error.message || "Arrear bill not found." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearPrintForm = () => {
+    setDocumentNo("");
+    setBill(null);
+    setStatus({ type: "", message: "" });
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel arrear-print-page" aria-label="Arrear bill print">
+      <div className="form-title-row no-print">
+        <div>
+          <p>Arrear Bill</p>
+          <h2>Arrear Bill Print</h2>
+        </div>
+      </div>
+
+      <div className="legacy-print-shell no-print">
+        <div className="legacy-print-card">
+          <h3>Document Printing</h3>
+          <label className="legacy-doc-input">
+            <span>Enter Doc. Number To Print :-</span>
+            <input
+              type="number"
+              value={documentNo}
+              onChange={(event) => setDocumentNo(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  loadBill();
+                }
+              }}
+              placeholder="0"
+            />
+          </label>
+          <fieldset>
+            <legend>**- Printing Selection -**</legend>
+            <label>
+              <input
+                type="radio"
+                value="printer"
+                checked={outputSelection === "printer"}
+                onChange={(event) => setOutputSelection(event.target.value)}
+              />
+              Printer
+            </label>
+            <label>
+              <input
+                type="radio"
+                value="screen"
+                checked={outputSelection === "screen"}
+                onChange={(event) => setOutputSelection(event.target.value)}
+              />
+              Screen
+            </label>
+          </fieldset>
+          <div className="legacy-print-actions">
+            <button type="button" onClick={loadBill} disabled={loading}>{loading ? "Loading..." : "OK"}</button>
+            <button type="button" onClick={clearPrintForm}>Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {bill ? <UniversalDocumentPreview documents={[bill]} /> : null}
+    </section>
+  );
+}
+
 function DocumentPrintingPage() {
   const [documentNo, setDocumentNo] = useState("");
   const [outputSelection, setOutputSelection] = useState("screen");
+  const [availableDocuments, setAvailableDocuments] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+
+  const loadAvailableDocuments = async () => {
+    try {
+      const [arrearResult, budgetResult] = await Promise.all([
+        getArrearBills(),
+        getBudgetTransactions()
+      ]);
+      setAvailableDocuments([
+        ...(arrearResult.data || []).map((bill) => ({
+          key: `arrear-${bill.id}`,
+          documentNo: bill.documentNo,
+          label: `Arrear #${bill.documentNo} - ${bill.employeeName || bill.employeeCode || ""}`
+        })),
+        ...(budgetResult.data || []).map((transaction) => ({
+          key: `budget-${transaction.id}`,
+          documentNo: transaction.documentNo,
+          label: `Budget #${transaction.documentNo} - ${transaction.budgetType}`
+        }))
+      ]);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
 
   const loadDocument = async () => {
     if (!documentNo) {
@@ -4079,11 +5107,21 @@ function DocumentPrintingPage() {
       }
     } catch (error) {
       setDocuments([]);
-      setStatus({ type: "error", message: error.message || "Document not found." });
+      const savedNumbers = Array.from(new Set(availableDocuments.map((document) => document.documentNo))).join(", ");
+      setStatus({
+        type: "error",
+        message: savedNumbers
+          ? `Document #${documentNo} not found. Saved document number(s): ${savedNumbers}.`
+          : error.message || "Document not found."
+      });
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadAvailableDocuments();
+  }, []);
 
   return (
     <section className="employee-entry-panel arrear-report-panel">
@@ -4097,6 +5135,17 @@ function DocumentPrintingPage() {
         <label>
           <span>Enter Doc. Number To Print</span>
           <input type="number" value={documentNo} onChange={(event) => setDocumentNo(event.target.value)} />
+        </label>
+        <label>
+          <span>Saved Documents</span>
+          <select value="" onChange={(event) => setDocumentNo(event.target.value)}>
+            <option value="">Select saved document</option>
+            {availableDocuments.map((document) => (
+              <option value={document.documentNo} key={document.key}>
+                {document.label}
+              </option>
+            ))}
+          </select>
         </label>
         <fieldset>
           <legend>Output Selection</legend>
@@ -5044,16 +6093,41 @@ function ToExcelPage() {
 }
 
 function EmployeePayAllowanceInquiry() {
-  const [employeeCode, setEmployeeCode] = useState("");
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employeeOptions, setEmployeeOptions] = useState([]);
   const [employee, setEmployee] = useState(null);
   const [allowances, setAllowances] = useState([]);
   const [activeAllowanceTotal, setActiveAllowanceTotal] = useState(0);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const [loadingOptions, setLoadingOptions] = useState(false);
 
-  const loadInquiry = async () => {
-    if (!employeeCode.trim()) {
-      setStatus({ type: "error", message: "Please enter employee code." });
+  const cleanSearch = employeeSearch.trim();
+  const exactCodeMatch = employeeOptions.find(
+    (option) => String(option.employeeNo || "").trim().toLowerCase() === cleanSearch.toLowerCase()
+  );
+  const matchedEmployees = cleanSearch
+    ? employeeOptions
+        .filter((option) => {
+          const query = cleanSearch.toLowerCase();
+
+          return (
+            String(option.employeeNo || "").toLowerCase().includes(query) ||
+            String(option.name || "").toLowerCase().includes(query) ||
+            String(option.fatherName || "").toLowerCase().includes(query) ||
+            String(option.designation || "").toLowerCase().includes(query) ||
+            String(option.department || "").toLowerCase().includes(query)
+          );
+        })
+        .slice(0, 8)
+    : [];
+  const showEmployeeMatches = cleanSearch && !exactCodeMatch && matchedEmployees.length;
+
+  const loadInquiry = async (code = cleanSearch) => {
+    const lookupCode = String(code || "").trim();
+
+    if (!lookupCode) {
+      setStatus({ type: "error", message: "Please enter employee code or name." });
       return;
     }
 
@@ -5061,11 +6135,12 @@ function EmployeePayAllowanceInquiry() {
     setStatus({ type: "", message: "" });
 
     try {
-      const foundEmployee = await getEmployeeByCode(employeeCode.trim());
+      const foundEmployee = await getEmployeeByCode(lookupCode);
       const allowanceData = await getEmployeeAllowances(foundEmployee.id);
       setEmployee(foundEmployee);
       setAllowances(allowanceData.allowances);
       setActiveAllowanceTotal(Number(allowanceData.activeAllowanceTotal || 0));
+      setEmployeeSearch(foundEmployee.employeeNo || lookupCode);
       setStatus({ type: "success", message: "Employee allowance details loaded." });
     } catch (error) {
       setEmployee(null);
@@ -5077,12 +6152,90 @@ function EmployeePayAllowanceInquiry() {
     }
   };
 
+  const viewEmployee = (selectedEmployee) => {
+    setEmployeeSearch(selectedEmployee.employeeNo || "");
+    loadInquiry(selectedEmployee.employeeNo);
+  };
+
+  const closeInquiry = () => {
+    setEmployee(null);
+    setAllowances([]);
+    setActiveAllowanceTotal(0);
+    setEmployeeSearch("");
+    setStatus({ type: "", message: "" });
+  };
+
+  const runSearch = () => {
+    if (exactCodeMatch) {
+      loadInquiry(exactCodeMatch.employeeNo);
+      return;
+    }
+
+    if (matchedEmployees.length === 1) {
+      viewEmployee(matchedEmployees[0]);
+      return;
+    }
+
+    if (matchedEmployees.length > 1) {
+      setStatus({ type: "neutral", message: "Select an employee from the list below." });
+      return;
+    }
+
+    loadInquiry();
+  };
+
   const handleKeyDown = (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      loadInquiry();
+      runSearch();
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEmployeeOptions() {
+      setLoadingOptions(true);
+
+      try {
+        const records = await getEmployees();
+
+        if (!cancelled) {
+          setEmployeeOptions(records);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus({ type: "error", message: error.message });
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingOptions(false);
+        }
+      }
+    }
+
+    loadEmployeeOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!exactCodeMatch) {
+      return undefined;
+    }
+
+    if (employee?.employeeNo === exactCodeMatch.employeeNo) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      loadInquiry(exactCodeMatch.employeeNo);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [exactCodeMatch?.employeeNo, employee?.employeeNo]);
 
   return (
     <section className="employee-entry-panel" aria-label="Employee pay allowance inquiry">
@@ -5095,19 +6248,54 @@ function EmployeePayAllowanceInquiry() {
 
       <div className="allowance-inquiry-search">
         <label>
-          <span>Employee Code</span>
+          <span>Employee Code / Name</span>
           <input
             type="text"
-            value={employeeCode}
-            onChange={(event) => setEmployeeCode(event.target.value)}
+            value={employeeSearch}
+            onChange={(event) => setEmployeeSearch(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Enter employee code and press Enter"
+            placeholder="Type employee code or name"
           />
         </label>
-        <button type="button" onClick={loadInquiry} disabled={loading}>
+        <button type="button" onClick={runSearch} disabled={loading}>
           {loading ? "Searching..." : "Search"}
         </button>
       </div>
+
+      {loadingOptions ? (
+        <p className="form-status neutral">Loading employee list...</p>
+      ) : null}
+
+      {showEmployeeMatches ? (
+        <div className="employee-search-results" aria-label="Matching employees">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Designation</th>
+                <th>Department</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matchedEmployees.map((matchedEmployee) => (
+                <tr key={matchedEmployee.id}>
+                  <td>{matchedEmployee.employeeNo}</td>
+                  <td>{matchedEmployee.name}</td>
+                  <td>{matchedEmployee.designation || "-"}</td>
+                  <td>{matchedEmployee.department || "-"}</td>
+                  <td>
+                    <button type="button" onClick={() => viewEmployee(matchedEmployee)}>
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       {status.message ? (
         <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
@@ -5115,6 +6303,12 @@ function EmployeePayAllowanceInquiry() {
 
       {employee ? (
         <>
+          <div className="inquiry-result-actions">
+            <button type="button" onClick={closeInquiry}>
+              Close
+            </button>
+          </div>
+
           <div className="inquiry-summary-grid">
             <article>
               <span>Employee</span>
@@ -5460,6 +6654,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <EmployeeBasicDataInquiry onAddEmployee={() => navigateToPage("New Employee Entry")} />
         ) : activeItem === "Arrear Bill Entry" ? (
           <ArrearBillEntry />
+        ) : activeItem === "Arrear Bill Print" ? (
+          <ArrearBillPrintPage />
         ) : activeItem === "Arrear Bill Of An Employee - Doc. Wise" || activeItem === "Arrear Bill Of An Employee Document Wise" ? (
           <ArrearBillReportPage groupBy="doc_no" />
         ) : activeItem === "Arrear Bill Of An Employee - Code Wise" || activeItem === "Arrear Bill Of An Employee Code Wise" ? (

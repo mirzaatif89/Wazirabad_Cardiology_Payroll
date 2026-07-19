@@ -31,6 +31,42 @@ export async function loginUser(credentials) {
   return readJsonResponse(response, "Login failed.");
 }
 
+export async function requestPasswordResetOtp(usernameOrEmail) {
+  const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ usernameOrEmail })
+  });
+
+  return readJsonResponse(response, "Password reset OTP failed.");
+}
+
+export async function verifyPasswordResetOtp(payload) {
+  const response = await fetch(`${API_BASE_URL}/auth/verify-reset-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return readJsonResponse(response, "OTP verification failed.");
+}
+
+export async function resetPasswordWithOtp(payload) {
+  const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return readJsonResponse(response, "Password reset failed.");
+}
+
 export async function resetSoftwareData(password) {
   const response = await fetch(`${API_BASE_URL}/admin/reset-data`, {
     method: "POST",
@@ -609,6 +645,17 @@ export async function reopenArrearBill(id) {
   return readJsonResponse(response, "Arrear bill reopen failed.");
 }
 
+export async function updateArrearBillStatus(id, status) {
+  const response = await fetch(`${API_BASE_URL}/arrear-bills/${id}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ status, performedBy: "Hospital Admin" })
+  });
+  return readJsonResponse(response, "Arrear bill status update failed.");
+}
+
 export async function getArrearBillReport(filters = {}) {
   const params = new URLSearchParams();
 
@@ -622,6 +669,10 @@ export async function getArrearBillReport(filters = {}) {
 
   if (filters.toDate) {
     params.set("to_date", filters.toDate);
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
   }
 
   params.set("sort_by", filters.sortBy || "doc_no");
@@ -712,6 +763,17 @@ export async function reopenBudgetTransaction(id) {
     body: JSON.stringify({ performedBy: "Hospital Admin" })
   });
   return readJsonResponse(response, "Budget transaction reopen failed.");
+}
+
+export async function updateBudgetTransactionStatus(id, status) {
+  const response = await fetch(`${API_BASE_URL}/budget-transactions/${id}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ status, performedBy: "Hospital Admin" })
+  });
+  return readJsonResponse(response, "Budget transaction status update failed.");
 }
 
 export async function createBudgetTransaction(transaction) {

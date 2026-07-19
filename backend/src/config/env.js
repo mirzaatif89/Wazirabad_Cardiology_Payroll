@@ -13,6 +13,15 @@ export const env = {
     password: process.env.DB_PASSWORD || ""
   },
   jwtSecret: process.env.JWT_SECRET || "change_this_secret_for_production",
+  adminEmail: process.env.ADMIN_EMAIL || "",
+  smtp: {
+    host: process.env.SMTP_HOST || "",
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+    user: process.env.SMTP_USER || "",
+    password: process.env.SMTP_PASSWORD || "",
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || ""
+  },
   reportScheduleDefaults: {
     incomeTax: process.env.REPORT_INCOME_TAX_WAGE_CODE || "G12713",
     gpFund: process.env.REPORT_GP_FUND_WAGE_CODE || "G06103",

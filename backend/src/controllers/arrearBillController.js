@@ -11,6 +11,7 @@ import {
   getWageCodeMap,
   normalizeArrearItems,
   updateArrearBillById,
+  updateArrearBillStatusById,
   validateArrearPayload
 } from "../models/arrearBillModel.js";
 import { logAuditAction } from "../models/auditLogModel.js";
@@ -113,7 +114,8 @@ export async function arrearBillReport(req, res) {
       employeeCode: req.query.employee_code || "",
       fromDate,
       toDate,
-      sortBy
+      sortBy,
+      status: req.query.status || ""
     });
 
     return res.json({
@@ -244,5 +246,32 @@ export async function reopenBill(req, res) {
   } catch (error) {
     console.error("Arrear bill reopen failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Arrear bill reopen failed." });
+  }
+}
+
+export async function updateBillStatus(req, res) {
+  try {
+    const result = await updateArrearBillStatusById(req.params.id, req.body?.status);
+
+    if (result.status === "invalid") {
+      return res.status(400).json({ success: false, data: null, message: "Status must be draft, finalized, or cancelled." });
+    }
+
+    if (result.status === "not_found") {
+      return res.status(404).json({ success: false, data: null, message: "Arrear bill not found." });
+    }
+
+    await logAuditAction({
+      action: "status_update",
+      documentType: "arrear",
+      documentNo: result.documentNo,
+      performedBy: req.body?.performedBy || "Hospital Admin",
+      notes: `Arrear bill status changed from ${result.previousStatus} to ${req.body.status}.`
+    });
+
+    return res.json({ success: true, data: result.bill, message: "Arrear bill status updated successfully." });
+  } catch (error) {
+    console.error("Arrear bill status update failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Arrear bill status update failed." });
   }
 }

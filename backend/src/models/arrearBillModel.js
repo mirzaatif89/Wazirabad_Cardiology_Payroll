@@ -48,6 +48,34 @@ export async function getNextDocumentNo(connection = pool) {
 }
 
 export async function getArrearBills({ employeeCode = "", dateFrom = "", dateTo = "", status = "", documentNo = "" } = {}) {
+  const whereClauses = [];
+  const params = [];
+
+  if (employeeCode) {
+    whereClauses.push("ab.employee_code = ?");
+    params.push(employeeCode);
+  }
+
+  if (dateFrom) {
+    whereClauses.push("ab.bill_date >= ?");
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    whereClauses.push("ab.bill_date <= ?");
+    params.push(dateTo);
+  }
+
+  if (status) {
+    whereClauses.push("ab.status = ?");
+    params.push(status);
+  }
+
+  if (documentNo) {
+    whereClauses.push("ab.document_no = ?");
+    params.push(Number(documentNo));
+  }
+
   const [rows] = await pool.query(
     `
       SELECT
@@ -62,14 +90,10 @@ export async function getArrearBills({ employeeCode = "", dateFrom = "", dateTo 
         ab.created_at AS createdAt
       FROM arrear_bills ab
       INNER JOIN employees e ON e.employee_no = ab.employee_code
-      WHERE (? = '' OR ab.employee_code = ?)
-        AND (? = '' OR ab.bill_date >= ?)
-        AND (? = '' OR ab.bill_date <= ?)
-        AND (? = '' OR ab.status = ?)
-        AND (? = '' OR ab.document_no = ?)
+      ${whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : ""}
       ORDER BY ab.document_no DESC
     `,
-    [employeeCode, employeeCode, dateFrom, dateFrom, dateTo, dateTo, status, status, documentNo, documentNo]
+    params
   );
 
   return rows;
@@ -122,9 +146,11 @@ export async function getArrearBillById(id) {
   return { ...bill, items };
 }
 
-export async function getArrearBillReport({ employeeCode = "", fromDate, toDate, sortBy = "doc_no" }) {
+export async function getArrearBillReport({ employeeCode = "", fromDate, toDate, sortBy = "doc_no", status = "" }) {
   const normalizedEmployeeCode = String(employeeCode || "").trim();
+  const normalizedStatus = String(status || "").trim();
   const shouldFilterEmployee = normalizedEmployeeCode !== "" && normalizedEmployeeCode !== "0";
+  const shouldFilterStatus = ["draft", "finalized", "cancelled"].includes(normalizedStatus);
   const orderBy = sortBy === "employee_code"
     ? "ab.employee_code ASC, ab.document_no ASC"
     : "ab.document_no ASC";
@@ -132,6 +158,10 @@ export async function getArrearBillReport({ employeeCode = "", fromDate, toDate,
 
   if (shouldFilterEmployee) {
     params.push(normalizedEmployeeCode);
+  }
+
+  if (shouldFilterStatus) {
+    params.push(normalizedStatus);
   }
 
   const [bills] = await pool.query(
@@ -146,8 +176,8 @@ export async function getArrearBillReport({ employeeCode = "", fromDate, toDate,
       FROM arrear_bills ab
       INNER JOIN employees e ON e.employee_no = ab.employee_code
       WHERE ab.bill_date BETWEEN ? AND ?
-        AND ab.status <> 'cancelled'
         ${shouldFilterEmployee ? "AND ab.employee_code = ?" : ""}
+        ${shouldFilterStatus ? "AND ab.status = ?" : "AND ab.status <> 'cancelled'"}
       ORDER BY ${orderBy}
     `,
     params
@@ -421,4 +451,27 @@ export async function reopenArrearBillById(id) {
 
   await pool.query("UPDATE arrear_bills SET status = 'draft' WHERE id = ?", [id]);
   return { status: "reopened", documentNo: existingBill.documentNo, bill: await getArrearBillById(id) };
+}
+
+export async function updateArrearBillStatusById(id, nextStatus) {
+  if (!["draft", "finalized", "cancelled"].includes(nextStatus)) {
+    return { status: "invalid" };
+  }
+
+  const [[existingBill]] = await pool.query(
+    "SELECT id, document_no AS documentNo, status FROM arrear_bills WHERE id = ? LIMIT 1",
+    [id]
+  );
+
+  if (!existingBill) {
+    return { status: "not_found" };
+  }
+
+  await pool.query("UPDATE arrear_bills SET status = ? WHERE id = ?", [nextStatus, id]);
+  return {
+    status: "updated",
+    previousStatus: existingBill.status,
+    documentNo: existingBill.documentNo,
+    bill: await getArrearBillById(id)
+  };
 }

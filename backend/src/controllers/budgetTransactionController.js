@@ -11,6 +11,7 @@ import {
   normalizeBudgetItems,
   reopenBudgetTransactionById,
   updateBudgetTransactionById,
+  updateBudgetTransactionStatusById,
   validateBudgetPayload
 } from "../models/budgetTransactionModel.js";
 import { logAuditAction } from "../models/auditLogModel.js";
@@ -190,6 +191,33 @@ export async function reopenTransaction(req, res) {
   } catch (error) {
     console.error("Budget transaction reopen failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Budget transaction reopen failed." });
+  }
+}
+
+export async function updateTransactionStatus(req, res) {
+  try {
+    const result = await updateBudgetTransactionStatusById(req.params.id, req.body?.status);
+
+    if (result.status === "invalid") {
+      return res.status(400).json({ success: false, data: null, message: "Status must be draft, finalized, or cancelled." });
+    }
+
+    if (result.status === "not_found") {
+      return res.status(404).json({ success: false, data: null, message: "Budget transaction not found." });
+    }
+
+    await logAuditAction({
+      action: "status_update",
+      documentType: "budget",
+      documentNo: result.documentNo,
+      performedBy: req.body?.performedBy || "Hospital Admin",
+      notes: `Budget transaction status changed from ${result.previousStatus} to ${req.body.status}.`
+    });
+
+    return res.json({ success: true, data: result.transaction, message: "Budget transaction status updated successfully." });
+  } catch (error) {
+    console.error("Budget transaction status update failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Budget transaction status update failed." });
   }
 }
 

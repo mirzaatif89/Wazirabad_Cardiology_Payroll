@@ -18,13 +18,8 @@ export const sidebarSections = [
     items: [
       "Arrear Bill Entry",
       "Budget/Expense Entry",
-      "Arrear Bill Print",
-      "Arrear Bill Of An Employee - Doc. Wise",
-      "Arrear Bill Of An Employee - Code Wise",
       "Document Printing",
-      "Budget Position",
-      "Arrear Bill Correction",
-      "Budget/Expense Edit"
+      "Budget Position"
     ]
   },
   {

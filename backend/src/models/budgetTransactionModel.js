@@ -82,6 +82,34 @@ export async function getAccountCodeMap(codes, connection = pool) {
 }
 
 export async function getBudgetTransactions({ budgetType = "", dateFrom = "", dateTo = "", status = "", documentNo = "" } = {}) {
+  const where = [];
+  const params = [];
+
+  if (budgetType) {
+    where.push("budget_type = ?");
+    params.push(budgetType);
+  }
+
+  if (dateFrom) {
+    where.push("transaction_date >= ?");
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    where.push("transaction_date <= ?");
+    params.push(dateTo);
+  }
+
+  if (status) {
+    where.push("status = ?");
+    params.push(status);
+  }
+
+  if (documentNo) {
+    where.push("document_no = ?");
+    params.push(documentNo);
+  }
+
   const [rows] = await pool.query(
     `
       SELECT
@@ -94,14 +122,10 @@ export async function getBudgetTransactions({ budgetType = "", dateFrom = "", da
         status,
         created_at AS createdAt
       FROM budget_transactions
-      WHERE (? = '' OR budget_type = ?)
-        AND (? = '' OR transaction_date >= ?)
-        AND (? = '' OR transaction_date <= ?)
-        AND (? = '' OR status = ?)
-        AND (? = '' OR document_no = ?)
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY document_no DESC
     `,
-    [budgetType, budgetType, dateFrom, dateFrom, dateTo, dateTo, status, status, documentNo, documentNo]
+    params
   );
   return rows;
 }
@@ -273,6 +297,29 @@ export async function reopenBudgetTransactionById(id) {
 
   await pool.query("UPDATE budget_transactions SET status = 'draft' WHERE id = ?", [id]);
   return { status: "reopened", documentNo: existing.documentNo, transaction: await getBudgetTransactionById(id) };
+}
+
+export async function updateBudgetTransactionStatusById(id, nextStatus) {
+  if (!["draft", "finalized", "cancelled"].includes(nextStatus)) {
+    return { status: "invalid" };
+  }
+
+  const [[existing]] = await pool.query(
+    "SELECT id, document_no AS documentNo, status FROM budget_transactions WHERE id = ? LIMIT 1",
+    [id]
+  );
+
+  if (!existing) {
+    return { status: "not_found" };
+  }
+
+  await pool.query("UPDATE budget_transactions SET status = ? WHERE id = ?", [nextStatus, id]);
+  return {
+    status: "updated",
+    previousStatus: existing.status,
+    documentNo: existing.documentNo,
+    transaction: await getBudgetTransactionById(id)
+  };
 }
 
 export async function getBudgetSummary() {

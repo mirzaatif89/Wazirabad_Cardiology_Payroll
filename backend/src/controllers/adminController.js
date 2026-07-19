@@ -2,15 +2,20 @@ import { pool } from "../config/database.js";
 import { verifyAdminPassword } from "../models/authModel.js";
 
 const RESET_TABLES = [
+  "payroll_run_item_details",
+  "payroll_run_items",
+  "payroll_runs",
+  "budget_transaction_items",
+  "budget_transactions",
+  "arrear_bill_items",
+  "arrear_bills",
+  "special_pay_entries",
+  "cheque_prints",
   "employee_allowances",
+  "employee_scale_history",
+  "employee_status_history",
   "employees",
-  "wage_codes",
-  "chart_of_accounts",
-  "account_codes",
-  "bank_branch_codes",
-  "bank_codes",
-  "department_codes",
-  "designation_codes"
+  "audit_log"
 ];
 
 async function tableExists(tableName) {
