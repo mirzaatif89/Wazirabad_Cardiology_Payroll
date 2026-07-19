@@ -1,4 +1,4 @@
-import { Lock, LogIn, User } from "lucide-react";
+import { Eye, EyeOff, Lock, LogIn, User } from "lucide-react";
 import React from "react";
 import { useState } from "react";
 import { loginUser } from "../services/api.js";
@@ -7,6 +7,7 @@ export default function LoginPage({ onLogin }) {
   const [form, setForm] = useState({ username: "", password: "" });
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const updateField = (event) => {
     const { name, value } = event.target;
@@ -64,12 +65,21 @@ export default function LoginPage({ onLogin }) {
               <Lock size={19} />
               <input
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={form.password}
                 onChange={updateField}
                 placeholder="Enter password"
                 autoComplete="current-password"
               />
+              <button
+                className="password-toggle"
+                type="button"
+                onClick={() => setShowPassword((current) => !current)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+              </button>
             </div>
           </label>
 
