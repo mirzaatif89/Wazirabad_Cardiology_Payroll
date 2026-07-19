@@ -7,13 +7,18 @@ async function readJsonResponse(response, fallbackMessage) {
   const contentType = response.headers.get("content-type") || "";
 
   if (!contentType.includes("application/json")) {
-    throw new Error("Backend API is not responding with JSON. Please check API URL/config.js.");
+    const error = new Error("Backend API is not responding with JSON. Please check API URL/config.js.");
+    error.status = response.status;
+    throw error;
   }
 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.message || fallbackMessage);
+    const error = new Error(data.message || fallbackMessage);
+    error.status = response.status;
+    error.data = data.data;
+    throw error;
   }
 
   return data;
@@ -919,6 +924,22 @@ export async function processPayroll(payload) {
   return readJsonResponse(response, "Payroll processing failed.");
 }
 
+export async function getPayrollCurrentPeriod() {
+  const response = await fetch(`${API_BASE_URL}/payroll/current-period`);
+  return readJsonResponse(response, "Current payroll period failed.");
+}
+
+export async function getPayrollEmployeeCount(filters = {}) {
+  const params = payrollParams(filters);
+  const response = await fetch(`${API_BASE_URL}/payroll/employee-count?${params.toString()}`);
+  return readJsonResponse(response, "Payroll employee count failed.");
+}
+
+export async function getPayrollRun(id) {
+  const response = await fetch(`${API_BASE_URL}/payroll/runs/${encodeURIComponent(id)}`);
+  return readJsonResponse(response, "Payroll run failed.");
+}
+
 export async function getPayrollReport(endpoint, filters = {}) {
   const params = payrollParams(filters);
   const response = await fetch(`${API_BASE_URL}/payroll/${endpoint}?${params.toString()}`);
@@ -949,6 +970,73 @@ export async function getPayrollRuns(filters = {}) {
 export async function reopenPayrollRun(id) {
   const response = await fetch(`${API_BASE_URL}/payroll/runs/${id}/reopen`, { method: "POST" });
   return readJsonResponse(response, "Payroll reopen failed.");
+}
+
+async function postMprocess(endpoint, payload, fallbackMessage) {
+  const response = await fetch(`${API_BASE_URL}/mprocess/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return readJsonResponse(response, fallbackMessage);
+}
+
+export async function previewPercentAllowance(payload) {
+  return postMprocess("percent-allowance/preview", {
+    source_wage_code: payload.sourceWageCode,
+    percentage: Number(payload.percentage),
+    target_wage_code: payload.targetWageCode,
+    bps: payload.bps || "99",
+    type: payload.type || "All",
+    effective_upto: payload.effectiveUpto
+  }, "Percentage allowance preview failed.");
+}
+
+export async function applyPercentAllowance(payload) {
+  return postMprocess("percent-allowance/apply", {
+    source_wage_code: payload.sourceWageCode,
+    percentage: Number(payload.percentage),
+    target_wage_code: payload.targetWageCode,
+    bps: payload.bps || "99",
+    type: payload.type || "All",
+    effective_upto: payload.effectiveUpto
+  }, "Percentage allowance apply failed.");
+}
+
+export async function previewFixedAllowance(payload) {
+  return postMprocess("fixed-allowance/preview", {
+    amount: Number(payload.amount),
+    target_wage_code: payload.targetWageCode,
+    designation_code: payload.designationCode || "999",
+    type: payload.type || "All",
+    effective_upto: payload.effectiveUpto
+  }, "Fixed allowance preview failed.");
+}
+
+export async function applyFixedAllowance(payload) {
+  return postMprocess("fixed-allowance/apply", {
+    amount: Number(payload.amount),
+    target_wage_code: payload.targetWageCode,
+    designation_code: payload.designationCode || "999",
+    type: payload.type || "All",
+    effective_upto: payload.effectiveUpto
+  }, "Fixed allowance apply failed.");
+}
+
+export async function previewAnnualIncrement(payload) {
+  return postMprocess("annual-increment/preview", {
+    increment_percentage: Number(payload.incrementPercentage),
+    applies_to_wage_code: payload.appliesToWageCode,
+    effective_date: payload.effectiveDate
+  }, "Annual increment preview failed.");
+}
+
+export async function applyAnnualIncrement(payload) {
+  return postMprocess("annual-increment/apply", {
+    increment_percentage: Number(payload.incrementPercentage),
+    applies_to_wage_code: payload.appliesToWageCode,
+    effective_date: payload.effectiveDate
+  }, "Annual increment apply failed.");
 }
 
 export async function saveEmployeeAllowances(employeeId, allowances) {

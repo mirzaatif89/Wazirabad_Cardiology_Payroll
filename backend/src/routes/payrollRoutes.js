@@ -2,6 +2,9 @@ import { Router } from "express";
 import {
   bankSummary,
   budgetRequirement,
+  currentPayrollPeriod,
+  employeeCount,
+  getRun,
   grandBankSummary,
   listOfPayment,
   listPayrollRuns,
@@ -16,8 +19,11 @@ import {
 
 const router = Router();
 
+router.get("/current-period", currentPayrollPeriod);
+router.get("/employee-count", employeeCount);
 router.post("/process", processPayrollRun);
 router.get("/runs", listPayrollRuns);
+router.get("/runs/:id", getRun);
 router.post("/runs/:id/reopen", reopenRun);
 router.get("/bank-summary", bankSummary);
 router.get("/non-bank-salary", nonBankSalary);

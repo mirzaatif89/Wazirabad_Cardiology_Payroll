@@ -65,7 +65,10 @@ import {
   getDocumentByNumber,
   getProofReport,
   getPayrollBudgetRequirement,
+  getPayrollCurrentPeriod,
+  getPayrollEmployeeCount,
   getPayrollReport,
+  getPayrollRun,
   getPayrollRuns,
   getSinglePayrollPayslip,
   getReportModule,
@@ -73,6 +76,12 @@ import {
   getSpecialPay,
   getTaxScheduleExport,
   printCheque,
+  applyAnnualIncrement,
+  applyFixedAllowance,
+  applyPercentAllowance,
+  previewAnnualIncrement,
+  previewFixedAllowance,
+  previewPercentAllowance,
   processPayroll,
   reopenPayrollRun,
   reopenArrearBill,
@@ -5803,57 +5812,606 @@ function PayrollReportShell({ title, endpoint, children, allowExcel = false, sim
   );
 }
 
-function PayrollProcessPage() {
-  const [filters, setFilters] = useState(payrollDefaultFilters());
-  const [result, setResult] = useState(null);
-  const [runs, setRuns] = useState([]);
+const defaultEffectiveDate = () => new Date(new Date().getFullYear(), 11, 31).toISOString().slice(0, 10);
+const defaultToday = () => new Date().toISOString().slice(0, 10);
+const mprocessTypeOptions = ["All", "Regular", "Contract", "Adhoc"];
+
+function MprocessWageDatalist({ id, wageCodes }) {
+  return (
+    <datalist id={id}>
+      {wageCodes.map((wage) => (
+        <option value={wage.code} key={`${id}-${wage.code}`}>
+          {wage.description}
+        </option>
+      ))}
+    </datalist>
+  );
+}
+
+function MprocessConfirmModal({ title, message, onCancel, onConfirm, loading }) {
+  return (
+    <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="confirm-modal warning">
+        <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+        <div>
+          <p>Bulk Operation</p>
+          <h3>{title}</h3>
+          <span>{message}</span>
+        </div>
+        <div className="confirm-modal-actions">
+          <button type="button" onClick={onCancel} disabled={loading}>Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={loading}>{loading ? "Applying..." : "Apply Changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PercentAllowanceCreationPage() {
+  const [form, setForm] = useState({
+    sourceWageCode: "",
+    percentage: "",
+    targetWageCode: "",
+    bps: "99",
+    type: "All",
+    effectiveUpto: defaultEffectiveDate()
+  });
+  const [wageCodes, setWageCodes] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
 
-  const loadRuns = async () => {
-    const data = await getPayrollRuns(filters);
-    setRuns(data.data || []);
+  useEffect(() => {
+    getWageCodes().then(setWageCodes).catch((error) => setStatus({ type: "error", message: error.message }));
+  }, []);
+
+  const update = (event) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
   };
 
-  const run = async () => {
-    if (!window.confirm(`This will calculate payroll for ${filters.month}/${filters.year}. Continue?`)) return;
+  const reset = () => {
+    setForm({ sourceWageCode: "", percentage: "", targetWageCode: "", bps: "99", type: "All", effectiveUpto: defaultEffectiveDate() });
+    setPreview(null);
+    setShowConfirm(false);
+    setStatus({ type: "", message: "" });
+  };
+
+  const runPreview = async () => {
+    if (!form.sourceWageCode || !form.percentage || !form.targetWageCode || !form.effectiveUpto) {
+      setStatus({ type: "error", message: "Source code, percentage, target code and effect upto are required." });
+      return;
+    }
+
     setLoading(true);
     setStatus({ type: "", message: "" });
     try {
-      const data = await processPayroll(filters);
-      setResult(data.data);
-      setStatus({ type: "success", message: data.message });
-      await loadRuns();
+      const result = await previewPercentAllowance(form);
+      setPreview(result.data);
+      setShowConfirm(true);
+      setStatus({ type: "neutral", message: `${result.data.count} employee(s) found. Review preview before applying.` });
     } catch (error) {
+      setPreview(null);
       setStatus({ type: "error", message: error.message });
-      await loadRuns();
     } finally {
       setLoading(false);
     }
   };
 
-  const reopenFirstRun = async () => {
-    if (!runs.length) return;
+  const apply = async () => {
+    setLoading(true);
     try {
-      await reopenPayrollRun(runs[0].id);
-      setStatus({ type: "success", message: "Payroll run reopened." });
-      await loadRuns();
+      const result = await applyPercentAllowance(form);
+      setPreview(result.data);
+      setShowConfirm(false);
+      setStatus({ type: "success", message: result.message });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel mprocess-panel">
+      {showConfirm ? <MprocessConfirmModal title="Apply Percentage Allowance" message={`This will update allowance ${form.targetWageCode} for ${preview?.count || 0} employees. Continue?`} onCancel={() => setShowConfirm(false)} onConfirm={apply} loading={loading} /> : null}
+      <div className="form-title-row"><div><p>M.Process</p><h2>New Percent Allowance Creation</h2></div></div>
+      <div className="mprocess-form">
+        <label><span>Code For Percentage</span><input name="sourceWageCode" value={form.sourceWageCode} onChange={update} list="percent-source-codes" placeholder="0001" /></label>
+        <label><span>% Age Of Code</span><input type="number" step="0.01" name="percentage" value={form.percentage} onChange={update} /></label>
+        <label><span>Code Of New Amount</span><input name="targetWageCode" value={form.targetWageCode} onChange={update} list="percent-target-codes" placeholder="1007" /></label>
+        <label><span>BPS (99-all)</span><input type="number" name="bps" value={form.bps} onChange={update} /></label>
+        <label><span>Type</span><select name="type" value={form.type} onChange={update}>{mprocessTypeOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label><span>Effect Upto</span><input type="date" name="effectiveUpto" value={form.effectiveUpto} onChange={update} /></label>
+        <div className="report-filter-actions"><button type="button" onClick={reset}>Cancel</button><button type="button" onClick={runPreview} disabled={loading}>{loading ? "Loading..." : "Change"}</button></div>
+      </div>
+      <MprocessWageDatalist id="percent-source-codes" wageCodes={wageCodes} />
+      <MprocessWageDatalist id="percent-target-codes" wageCodes={wageCodes} />
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      {preview ? <MprocessPreviewTable type="percentage" preview={preview} /> : null}
+    </section>
+  );
+}
+
+function FixedAllowanceCreationPage() {
+  const [form, setForm] = useState({
+    amount: "",
+    targetWageCode: "",
+    type: "All",
+    designationCode: "999",
+    effectiveUpto: defaultEffectiveDate()
+  });
+  const [wageCodes, setWageCodes] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    getWageCodes().then(setWageCodes).catch((error) => setStatus({ type: "error", message: error.message }));
+  }, []);
+
+  const update = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  const reset = () => {
+    setForm({ amount: "", targetWageCode: "", type: "All", designationCode: "999", effectiveUpto: defaultEffectiveDate() });
+    setPreview(null);
+    setShowConfirm(false);
+    setStatus({ type: "", message: "" });
+  };
+
+  const runPreview = async () => {
+    if (!form.amount || !form.targetWageCode || !form.effectiveUpto) {
+      setStatus({ type: "error", message: "Amount, target code and effect upto are required." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const result = await previewFixedAllowance(form);
+      setPreview(result.data);
+      setShowConfirm(true);
+      setStatus({ type: "neutral", message: `${result.data.count} employee(s) found. Review preview before applying.` });
+    } catch (error) {
+      setPreview(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const apply = async () => {
+    setLoading(true);
+    try {
+      const result = await applyFixedAllowance(form);
+      setPreview(result.data);
+      setShowConfirm(false);
+      setStatus({ type: "success", message: result.message });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel mprocess-panel">
+      {showConfirm ? <MprocessConfirmModal title="Apply Fixed Allowance" message={`This will update allowance ${form.targetWageCode} for ${preview?.count || 0} employees. Continue?`} onCancel={() => setShowConfirm(false)} onConfirm={apply} loading={loading} /> : null}
+      <div className="form-title-row"><div><p>M.Process</p><h2>Fixed Amount Allowance Creation</h2></div></div>
+      <div className="mprocess-form fixed-allowance-form">
+        <label><span>Amount</span><input type="number" step="0.01" name="amount" value={form.amount} onChange={update} /></label>
+        <label><span>Code Of New Amount</span><input name="targetWageCode" value={form.targetWageCode} onChange={update} list="fixed-target-codes" placeholder="1007" /></label>
+        <label><span>Type</span><select name="type" value={form.type} onChange={update}>{mprocessTypeOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label><span>Designation (999-all)</span><input name="designationCode" value={form.designationCode} onChange={update} /></label>
+        <label><span>Effect Upto</span><input type="date" name="effectiveUpto" value={form.effectiveUpto} onChange={update} /></label>
+        <div className="report-filter-actions"><button type="button" onClick={reset}>Cancel</button><button type="button" onClick={runPreview} disabled={loading}>{loading ? "Loading..." : "Change"}</button></div>
+      </div>
+      <MprocessWageDatalist id="fixed-target-codes" wageCodes={wageCodes} />
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      {preview ? <MprocessPreviewTable type="fixed" preview={preview} /> : null}
+    </section>
+  );
+}
+
+function AnnualIncrementPage({ onGoBack }) {
+  const [form, setForm] = useState({ incrementPercentage: "", appliesToWageCode: "0001", effectiveDate: defaultToday() });
+  const [wageCodes, setWageCodes] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    getWageCodes().then(setWageCodes).catch((error) => setStatus({ type: "error", message: error.message }));
+  }, []);
+
+  const update = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  const reset = () => {
+    setForm({ incrementPercentage: "", appliesToWageCode: "0001", effectiveDate: defaultToday() });
+    setPreview(null);
+    setShowConfirm(false);
+    setStatus({ type: "", message: "" });
+    if (onGoBack) onGoBack();
+  };
+
+  const runPreview = async () => {
+    if (!form.incrementPercentage || !form.appliesToWageCode || !form.effectiveDate) {
+      setStatus({ type: "error", message: "Increment percentage, wage code and effective date are required." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const result = await previewAnnualIncrement(form);
+      setPreview(result.data);
+      setShowConfirm(true);
+      setStatus({ type: "neutral", message: `${result.data.count} employee(s) found. Review preview before applying.` });
+    } catch (error) {
+      setPreview(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const apply = async () => {
+    setLoading(true);
+    try {
+      const result = await applyAnnualIncrement(form);
+      setPreview(result.data);
+      setShowConfirm(false);
+      setStatus({ type: "success", message: result.message });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel mprocess-panel">
+      {showConfirm ? <MprocessConfirmModal title="Apply Annual Increment" message={`This will increment basic pay for ${preview?.count || 0} employees. Continue?`} onCancel={() => setShowConfirm(false)} onConfirm={apply} loading={loading} /> : null}
+      <div className="form-title-row"><div><p>M.Process</p><h2>Annual Increment</h2></div></div>
+      <div className="mprocess-form annual-increment-form">
+        <label><span>Increment Percentage</span><input type="number" step="0.01" name="incrementPercentage" value={form.incrementPercentage} onChange={update} /></label>
+        <label><span>Applies To</span><input name="appliesToWageCode" value={form.appliesToWageCode} onChange={update} list="increment-wage-codes" /></label>
+        <label><span>Effective Date</span><input type="date" name="effectiveDate" value={form.effectiveDate} onChange={update} /></label>
+        <div className="report-filter-actions"><button type="button" onClick={reset}>Cancel</button><button type="button" onClick={runPreview} disabled={loading}>{loading ? "Loading..." : "Start"}</button></div>
+      </div>
+      <MprocessWageDatalist id="increment-wage-codes" wageCodes={wageCodes} />
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+      {preview ? <MprocessPreviewTable type="increment" preview={preview} /> : null}
+    </section>
+  );
+}
+
+function MprocessPreviewTable({ type, preview }) {
+  const rows = preview.items || [];
+  const isIncrement = type === "increment";
+  const isFixed = type === "fixed";
+
+  return (
+    <div className="table-wrap mprocess-preview-wrap">
+      <div className="mprocess-preview-summary">
+        <span>{preview.count || 0} employee(s)</span>
+        <strong>
+          Grand Total: PKR {formatCurrency(isIncrement ? preview.totalIncrementAmount : preview.grandTotal)}
+        </strong>
+      </div>
+      <table className="department-table mprocess-preview-table">
+        <thead>
+          <tr>
+            <th>Employee Code</th>
+            <th>Name</th>
+            {isFixed ? <th>Designation</th> : null}
+            {isIncrement ? <th>Current Basic Pay</th> : <th>{isFixed ? "Fixed Amount" : "Old Amount"}</th>}
+            {isIncrement ? <th>New Basic Pay</th> : <th>{isFixed ? "Amount To Apply" : "New Amount"}</th>}
+            {isIncrement ? <th>Increment</th> : <th>Target Code</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.employeeCode}>
+              <td>{row.employeeCode}</td>
+              <td>{row.name}</td>
+              {isFixed ? <td>{row.designation || "-"}</td> : null}
+              <td className="amount-cell">{formatCurrency(isIncrement ? row.currentBasicPay : row.sourceAmount || row.fixedAmount)}</td>
+              <td className="amount-cell">{formatCurrency(isIncrement ? row.newBasicPay : row.calculatedNewAmount || row.fixedAmount)}</td>
+              <td className={isIncrement ? "amount-cell" : ""}>{isIncrement ? formatCurrency(row.incrementAmount) : row.targetWageCode}</td>
+            </tr>
+          ))}
+          {!rows.length ? (
+            <tr><td colSpan={isFixed ? 6 : 5}>No employees found for this filter.</td></tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const payrollMonthOptions = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+];
+
+function normalizePayrollRun(data) {
+  if (!data) {
+    return null;
+  }
+
+  const employees = data.employees || data.items || [];
+  const totals = data.totals || {
+    grossPay: Number(data.totalGross || data.total_gross || 0),
+    totalDeductions: Number(data.totalDeductions || data.total_deductions || 0),
+    netPay: Number(data.totalNet || data.total_net || 0)
+  };
+
+  return {
+    ...data,
+    runId: data.runId || data.run_id || data.id,
+    employees,
+    items: employees,
+    totals,
+    employeesProcessed: data.employeesProcessed || data.employees_processed || employees.length
+  };
+}
+
+function PayrollCalculationResults({ result, filters }) {
+  const rows = result?.employees || result?.items || [];
+  const totals = result?.totals || { grossPay: 0, totalDeductions: 0, netPay: 0 };
+
+  return (
+    <div className="arrear-report-print-area salary-calculation-results">
+      <ReportLetterhead title="Salary Calculation" filterSummary={`${filters.month}/${filters.year} | Dept ${filters.deptCode || "999"}`} />
+      <div className="print-section-head">
+        <strong>Employees Processed: {rows.length}</strong>
+        <span>Gross: PKR {formatCurrency(totals.grossPay)}</span>
+        <span>Deductions: PKR {formatCurrency(totals.totalDeductions)}</span>
+        <span>Net: PKR {formatCurrency(totals.netPay)}</span>
+      </div>
+      <table className="print-report-table salary-calculation-table">
+        <thead>
+          <tr>
+            <th>Employee Code</th>
+            <th>Name</th>
+            <th>Department</th>
+            <th>Gross Pay</th>
+            <th>Total Deductions</th>
+            <th>Net Pay</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.employeeCode}>
+              <td>{row.employeeCode}</td>
+              <td>{row.name || "-"}</td>
+              <td>{row.department || "-"}</td>
+              <td className="amount-cell">{formatCurrency(row.grossPay)}</td>
+              <td className="amount-cell">{formatCurrency(row.totalDeductions)}</td>
+              <td className="amount-cell">{formatCurrency(row.netPay)}</td>
+            </tr>
+          ))}
+          {!rows.length ? (
+            <tr>
+              <td colSpan="6">No employees processed.</td>
+            </tr>
+          ) : null}
+          <tr className="report-total-row">
+            <td colSpan="3">Grand Total ({rows.length} employee{rows.length === 1 ? "" : "s"})</td>
+            <td className="amount-cell">{formatCurrency(totals.grossPay)}</td>
+            <td className="amount-cell">{formatCurrency(totals.totalDeductions)}</td>
+            <td className="amount-cell">{formatCurrency(totals.netPay)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
+  const [filters, setFilters] = useState(payrollDefaultFilters());
+  const [result, setResult] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [draftRun, setDraftRun] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const loadRuns = async (nextFilters = filters) => {
+    const data = await getPayrollRuns(nextFilters);
+    setRuns(data.data || []);
+    return data.data || [];
+  };
+
+  const loadCurrentPeriod = async () => {
+    try {
+      const response = await getPayrollCurrentPeriod();
+      if (response.data) {
+        const currentDraft = response.data;
+        const nextFilters = {
+          ...payrollDefaultFilters(),
+          month: String(currentDraft.paymentMonth),
+          year: String(currentDraft.paymentYear),
+          deptCode: String(currentDraft.deptCode || "999")
+        };
+        setDraftRun(currentDraft);
+        setFilters(nextFilters);
+        await loadRuns(nextFilters);
+        setStatus({ type: "neutral", message: "Draft payroll period found. You can resume processing." });
+      } else {
+        await loadRuns(filters);
+      }
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
   };
 
+  useEffect(() => {
+    loadCurrentPeriod();
+  }, []);
+
+  const updateFilter = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  const run = async () => {
+    if (!filters.month || !filters.year) {
+      setStatus({ type: "error", message: "Month and year are required." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const countResponse = await getPayrollEmployeeCount(filters);
+      const employeeCount = Number(countResponse.data?.count || 0);
+      setConfirmDialog({
+        employeeCount,
+        message: `This will calculate payroll for ${employeeCount} employees for ${filters.month}/${filters.year}. Continue?`
+      });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processConfirmedRun = async () => {
+    setConfirmDialog(null);
+    setLoading(true);
+    setStatus({ type: "neutral", message: "Calculating payroll..." });
+
+    try {
+      const response = await processPayroll(filters);
+      setResult(normalizePayrollRun(response.data));
+      setStatus({ type: "success", message: response.message });
+      setDraftRun(null);
+      await loadRuns();
+    } catch (error) {
+      if (error.status === 409 && error.data?.runId) {
+        try {
+          const runResponse = await getPayrollRun(error.data.runId);
+          setResult(normalizePayrollRun(runResponse.data));
+          setStatus({ type: "neutral", message: "Payroll already processed for this period. Existing result loaded." });
+          await loadRuns();
+        } catch (loadError) {
+          setStatus({ type: "error", message: loadError.message });
+        }
+      } else {
+        setStatus({ type: "error", message: error.message });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reopenCurrentRun = async () => {
+    const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
+    if (!runId) return;
+
+    try {
+      await reopenPayrollRun(runId);
+      setResult(null);
+      setStatus({ type: "success", message: "Payroll run reopened. You can process it again." });
+      await loadCurrentPeriod();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const goBack = () => {
+    setFilters(payrollDefaultFilters());
+    setResult(null);
+    setStatus({ type: "", message: "" });
+    setDraftRun(null);
+    if (onGoBack) onGoBack();
+  };
+
+  const exportResult = () => {
+    const rows = (result?.employees || result?.items || []).map((row) => ({
+      "Employee Code": row.employeeCode,
+      Name: row.name,
+      Department: row.department,
+      "Gross Pay": row.grossPay,
+      "Total Deductions": row.totalDeductions,
+      "Net Pay": row.netPay
+    }));
+    exportRowsToExcel(rows, `salary-calculation-${filters.month}-${filters.year}.xlsx`);
+  };
+
+  const hasProcessedRun = Boolean(result?.runId) || runs.some((runItem) => ["processed", "locked"].includes(runItem.status));
+
   return (
-    <section className="employee-entry-panel arrear-report-panel">
-      <PayrollFilter title="Payroll" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => { setResult(null); setStatus({ type: "", message: "" }); }} loading={loading} />
-      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
-      {runs.some((runItem) => ["processed", "locked"].includes(runItem.status)) ? <button className="refresh-button no-print" type="button" onClick={reopenFirstRun}>Reopen</button> : null}
-      {result ? (
-        <div className="arrear-report-print-area">
-          <ReportLetterhead title="Payroll Process Summary" filterSummary={`${filters.month}/${filters.year} | Dept ${filters.deptCode}`} />
-          <table className="print-report-table"><thead><tr><th>Employee Code</th><th>Name</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead><tbody>{result.items.map((row) => <tr key={row.employeeCode}><td>{row.employeeCode}</td><td>{row.name}</td><td className="amount-cell">{formatCurrency(row.grossPay)}</td><td className="amount-cell">{formatCurrency(row.totalDeductions)}</td><td className="amount-cell">{formatCurrency(row.netPay)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(result.totals.grossPay)}</td><td className="amount-cell">{formatCurrency(result.totals.totalDeductions)}</td><td className="amount-cell">{formatCurrency(result.totals.netPay)}</td></tr></tbody></table>
+    <section className="employee-entry-panel arrear-report-panel salary-calculation-panel">
+      {confirmDialog ? (
+        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Confirm salary calculation">
+          <div className="confirm-modal">
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Salary Calculation</p>
+              <h3>{draftRun ? "Resume Payroll Run" : "Start Payroll Run"}</h3>
+              <span>{confirmDialog.message}</span>
+            </div>
+            <div className="confirm-modal-actions">
+              <button type="button" onClick={() => setConfirmDialog(null)}>Cancel</button>
+              <button type="button" onClick={processConfirmedRun}>Continue</button>
+            </div>
+          </div>
         </div>
       ) : null}
+      <div className="form-title-row">
+        <div>
+          <p>M.Process</p>
+          <h2>{title}</h2>
+        </div>
+        <div className="title-actions no-print">
+          {result ? <button className="refresh-button" type="button" onClick={() => window.print()}>Print</button> : null}
+          {result ? <button type="button" onClick={exportResult}>Export Excel</button> : null}
+        </div>
+      </div>
+      <div className="salary-period-form no-print">
+        <label>
+          <span>Month</span>
+          <select name="month" value={filters.month} onChange={updateFilter}>
+            {payrollMonthOptions.map((monthName, index) => (
+              <option value={String(index + 1)} key={monthName}>{index + 1} - {monthName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Year</span>
+          <input type="number" name="year" min="2000" max="2100" value={filters.year} onChange={updateFilter} />
+        </label>
+        <label>
+          <span>Dept Code</span>
+          <input type="number" name="deptCode" value={filters.deptCode} onChange={updateFilter} placeholder="999 = All Departments" />
+        </label>
+        <div className="report-filter-actions">
+          <button type="button" onClick={goBack}>Go Back</button>
+          <button type="button" onClick={run} disabled={loading}>{loading ? "Calculating..." : draftRun ? "Resume" : "Start"}</button>
+        </div>
+      </div>
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {hasProcessedRun ? (
+        <div className="salary-run-actions no-print">
+          <button className="refresh-button" type="button" onClick={reopenCurrentRun}>Reopen for Reprocessing</button>
+        </div>
+      ) : null}
+      {result ? <PayrollCalculationResults result={result} filters={filters} /> : null}
     </section>
   );
 }
@@ -6681,7 +7239,15 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
         ) : activeItem === "Scale Audit Proof Printing" ? (
           <ScaleAuditProofPrintingPage />
         ) : activeItem === "Payroll" ? (
-          <PayrollProcessPage />
+          <PayrollProcessPage title="Payroll" />
+        ) : activeItem === "Salary Calculation" ? (
+          <PayrollProcessPage title="Salary Calculation" onGoBack={() => navigateToPage("M.Process")} />
+        ) : activeItem === "New Percent Allowance Creation" ? (
+          <PercentAllowanceCreationPage />
+        ) : activeItem === "Fixed Amount Allowance Creation" ? (
+          <FixedAllowanceCreationPage />
+        ) : activeItem === "Annual Increment" ? (
+          <AnnualIncrementPage onGoBack={() => navigateToPage("M.Process")} />
         ) : activeItem === "Bank Summary" ? (
           <BankSummaryPage />
         ) : activeItem === "Non Bank Salary" ? (

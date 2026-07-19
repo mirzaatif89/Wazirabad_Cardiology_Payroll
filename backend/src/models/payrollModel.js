@@ -104,7 +104,45 @@ async function getEmployeesForPayroll(connection, filters = {}) {
   return rows;
 }
 
-export async function calculateEmployeePayroll(employee, paymentMonth, paymentYear, connection = pool) {
+async function findEmployeeForPayroll(employeeCode, connection = pool) {
+  const [[employee]] = await connection.query(
+    `
+      SELECT
+        e.id,
+        e.employee_no AS employeeCode,
+        e.name,
+        e.department,
+        e.department_code AS departmentCode,
+        e.designation,
+        e.bps,
+        e.gaz_ng AS gazNg,
+        e.bank_code AS bankCode,
+        e.bank_branch_code AS bankBranchCode,
+        e.account_no AS accountNo
+      FROM employees e
+      WHERE e.employee_no = ?
+        AND COALESCE(e.status, 'active') = 'active'
+      LIMIT 1
+    `,
+    [String(employeeCode)]
+  );
+  return employee || null;
+}
+
+async function tableExists(tableName, connection = pool) {
+  const [rows] = await connection.query("SHOW TABLES LIKE ?", [tableName]);
+  return rows.length > 0;
+}
+
+export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, paymentYear, connection = pool) {
+  const employee = typeof employeeOrCode === "object"
+    ? employeeOrCode
+    : await findEmployeeForPayroll(employeeOrCode, connection);
+
+  if (!employee) {
+    return { grossPay: 0, totalDeductions: 0, netPay: 0, lineItems: [], details: [] };
+  }
+
   const validDate = monthEndDate(paymentMonth, paymentYear);
   const [details] = await connection.query(
     `
@@ -121,22 +159,26 @@ export async function calculateEmployeePayroll(employee, paymentMonth, paymentYe
     `,
     [employee.id, validDate]
   );
-  const [specialDetails] = await connection.query(
-    `
-      SELECT
-        spe.wage_code AS wageCode,
-        COALESCE(NULLIF(spe.description, ''), wc.description) AS description,
-        spe.amount,
-        CAST(spe.wage_code AS UNSIGNED) AS numericCode
-      FROM special_pay_entries spe
-      LEFT JOIN wage_codes wc ON wc.code = spe.wage_code
-      WHERE spe.employee_code = ?
-        AND spe.pay_month = ?
-        AND spe.pay_year = ?
-      ORDER BY CAST(spe.wage_code AS UNSIGNED), spe.id
-    `,
-    [employee.employeeCode, Number(paymentMonth), Number(paymentYear)]
-  );
+  let specialDetails = [];
+
+  if (await tableExists("special_pay_entries", connection)) {
+    [specialDetails] = await connection.query(
+      `
+        SELECT
+          spe.wage_code AS wageCode,
+          COALESCE(NULLIF(spe.description, ''), wc.description) AS description,
+          spe.amount,
+          CAST(spe.wage_code AS UNSIGNED) AS numericCode
+        FROM special_pay_entries spe
+        LEFT JOIN wage_codes wc ON wc.code = spe.wage_code
+        WHERE spe.employee_code = ?
+          AND spe.pay_month = ?
+          AND spe.pay_year = ?
+        ORDER BY CAST(spe.wage_code AS UNSIGNED), spe.id
+      `,
+      [employee.employeeCode, Number(paymentMonth), Number(paymentYear)]
+    );
+  }
 
   const lines = [...details, ...specialDetails].map((detail) => ({
     wageCode: detail.wageCode,
@@ -153,7 +195,7 @@ export async function calculateEmployeePayroll(employee, paymentMonth, paymentYe
   const netPay = grossPay - totalDeductions;
   const isBankSalary = Boolean(String(employee.bankCode || "").trim() && String(employee.accountNo || "").trim());
 
-  return { grossPay, totalDeductions, netPay, isBankSalary, details: lines };
+  return { grossPay, totalDeductions, netPay, isBankSalary, lineItems: lines, details: lines };
 }
 
 export async function processPayroll({ paymentMonth, paymentYear, deptCode = "999", gazNg = "A", reportFor = "All", processedBy = "Hospital Admin" }) {
@@ -234,6 +276,9 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
       results.push({
         employeeCode: employee.employeeCode,
         name: employee.name,
+        department: employee.department,
+        departmentCode: employee.departmentCode,
+        designation: employee.designation,
         grossPay: calculated.grossPay,
         totalDeductions: calculated.totalDeductions,
         netPay: calculated.netPay
@@ -249,6 +294,16 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
     return {
       status: "processed",
       runId,
+      run_id: runId,
+      employeesProcessed: results.length,
+      employees_processed: results.length,
+      totalGross: results.reduce((total, item) => total + item.grossPay, 0),
+      total_gross: results.reduce((total, item) => total + item.grossPay, 0),
+      totalDeductions: results.reduce((total, item) => total + item.totalDeductions, 0),
+      total_deductions: results.reduce((total, item) => total + item.totalDeductions, 0),
+      totalNet: results.reduce((total, item) => total + item.netPay, 0),
+      total_net: results.reduce((total, item) => total + item.netPay, 0),
+      employees: results,
       items: results,
       totals: results.reduce((sum, item) => ({
         grossPay: sum.grossPay + item.grossPay,
@@ -264,6 +319,40 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
   }
 }
 
+export async function getCurrentPayrollPeriod() {
+  const [[run]] = await pool.query(
+    `
+      SELECT
+        id,
+        payment_month AS paymentMonth,
+        payment_year AS paymentYear,
+        dept_code AS deptCode,
+        status,
+        processed_at AS processedAt,
+        processed_by AS processedBy
+      FROM payroll_runs
+      WHERE status = 'draft'
+      ORDER BY payment_year DESC, payment_month DESC, id DESC
+      LIMIT 1
+    `
+  );
+  return run || null;
+}
+
+export async function countPayrollEmployees({ deptCode = "999", gazNg = "A", reportFor = "All" } = {}) {
+  const { where, params } = employeeWhere({ deptCode, gazNg, reportFor });
+  const [[row]] = await pool.query(
+    `
+      SELECT COUNT(*) AS count
+      FROM employees e
+      WHERE ${where}
+        AND COALESCE(e.status, 'active') = 'active'
+    `,
+    params
+  );
+  return Number(row?.count || 0);
+}
+
 export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = {}) {
   const [rows] = await pool.query(
     `
@@ -276,6 +365,7 @@ export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = 
         pr.processed_at AS processedAt,
         COUNT(pri.id) AS employeeCount,
         COALESCE(SUM(pri.gross_pay), 0) AS totalGross,
+        COALESCE(SUM(pri.total_deductions), 0) AS totalDeductions,
         COALESCE(SUM(pri.net_pay), 0) AS totalNet
       FROM payroll_runs pr
       LEFT JOIN payroll_run_items pri ON pri.payroll_run_id = pr.id
@@ -288,6 +378,67 @@ export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = 
     [month, month, year, year, deptCode, deptCode]
   );
   return rows;
+}
+
+export async function getPayrollRunById(id) {
+  const [[run]] = await pool.query(
+    `
+      SELECT
+        pr.id,
+        pr.payment_month AS paymentMonth,
+        pr.payment_year AS paymentYear,
+        pr.dept_code AS deptCode,
+        pr.status,
+        pr.processed_at AS processedAt,
+        pr.processed_by AS processedBy
+      FROM payroll_runs pr
+      WHERE pr.id = ?
+      LIMIT 1
+    `,
+    [id]
+  );
+
+  if (!run) return null;
+
+  const [employees] = await pool.query(
+    `
+      SELECT
+        pri.id AS itemId,
+        pri.employee_code AS employeeCode,
+        e.name,
+        e.department,
+        e.department_code AS departmentCode,
+        e.designation,
+        pri.gross_pay AS grossPay,
+        pri.total_deductions AS totalDeductions,
+        pri.net_pay AS netPay
+      FROM payroll_run_items pri
+      LEFT JOIN employees e ON e.employee_no = pri.employee_code
+      WHERE pri.payroll_run_id = ?
+      ORDER BY CAST(pri.employee_code AS UNSIGNED), pri.employee_code
+    `,
+    [id]
+  );
+  const totals = employees.reduce((sum, employee) => ({
+    grossPay: sum.grossPay + Number(employee.grossPay || 0),
+    totalDeductions: sum.totalDeductions + Number(employee.totalDeductions || 0),
+    netPay: sum.netPay + Number(employee.netPay || 0)
+  }), { grossPay: 0, totalDeductions: 0, netPay: 0 });
+
+  return {
+    ...run,
+    employees,
+    items: employees,
+    employeesProcessed: employees.length,
+    employees_processed: employees.length,
+    totalGross: totals.grossPay,
+    total_gross: totals.grossPay,
+    totalDeductions: totals.totalDeductions,
+    total_deductions: totals.totalDeductions,
+    totalNet: totals.netPay,
+    total_net: totals.netPay,
+    totals
+  };
 }
 
 export async function reopenPayrollRun(id) {

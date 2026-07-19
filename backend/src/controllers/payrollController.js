@@ -1,8 +1,11 @@
 import {
+  countPayrollEmployees,
+  getCurrentPayrollPeriod,
   getBankSummary,
   getBudgetRequirement,
   getGrandBankSummary,
   getListOfPayment,
+  getPayrollRunById,
   getNonBankSalary,
   getPaymentList,
   getPayrollRuns,
@@ -45,12 +48,32 @@ export async function processPayrollRun(req, res) {
       processedBy: req.body?.processed_by || "Hospital Admin"
     });
     if (result.status === "already_processed") {
-      return res.status(409).json({ success: false, data: result, message: "Already processed, use reopen first." });
+      return res.status(409).json({ success: false, data: result, message: "Already processed for this period" });
     }
     return res.json({ success: true, data: result, message: "Payroll processed successfully." });
   } catch (error) {
     console.error("Payroll processing failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Payroll processing failed." });
+  }
+}
+
+export async function currentPayrollPeriod(_req, res) {
+  try {
+    return res.json({ success: true, data: await getCurrentPayrollPeriod(), message: "Current payroll period loaded." });
+  } catch (error) {
+    console.error("Current payroll period failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Current payroll period failed." });
+  }
+}
+
+export async function employeeCount(req, res) {
+  try {
+    const filter = filters(req);
+    const count = await countPayrollEmployees(filter);
+    return res.json({ success: true, data: { count }, message: "Employee count loaded." });
+  } catch (error) {
+    console.error("Payroll employee count failed:", error);
+    return res.status(500).json({ success: false, data: { count: 0 }, message: "Payroll employee count failed." });
   }
 }
 
@@ -61,6 +84,17 @@ export async function listPayrollRuns(req, res) {
   } catch (error) {
     console.error("Payroll runs failed:", error);
     return res.status(500).json({ success: false, data: [], message: "Payroll runs failed." });
+  }
+}
+
+export async function getRun(req, res) {
+  try {
+    const run = await getPayrollRunById(req.params.id);
+    if (!run) return res.status(404).json({ success: false, data: null, message: "Payroll run not found." });
+    return res.json({ success: true, data: run, message: "Payroll run loaded." });
+  } catch (error) {
+    console.error("Payroll run load failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Payroll run load failed." });
   }
 }
 
