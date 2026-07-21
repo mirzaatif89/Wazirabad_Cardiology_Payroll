@@ -231,6 +231,21 @@ export async function getEmployees() {
   return rows;
 }
 
+export async function getNextEmployeeNo() {
+  const [[row]] = await pool.query(`
+    SELECT
+      COALESCE(MAX(CAST(employee_no AS UNSIGNED)), 0) AS maxEmployeeNo,
+      COALESCE(MAX(CHAR_LENGTH(employee_no)), 2) AS maxEmployeeNoLength
+    FROM employees
+    WHERE employee_no REGEXP '^[0-9]+$'
+  `);
+
+  const nextNumber = Number(row.maxEmployeeNo || 0) + 1;
+  const width = Math.max(2, Number(row.maxEmployeeNoLength || 2));
+
+  return String(nextNumber).padStart(width, "0");
+}
+
 export async function getEmployeeByCode(employeeNo) {
   const [rows] = await pool.query(
     `
@@ -396,6 +411,54 @@ export async function updateEmployeeById(id, employee) {
 }
 
 export async function deleteEmployeeById(id) {
-  const [result] = await pool.query("DELETE FROM employees WHERE id = ?", [id]);
-  return result.affectedRows;
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [[employee]] = await connection.query(
+      "SELECT id, employee_no AS employeeNo FROM employees WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    if (!employee) {
+      await connection.rollback();
+      return 0;
+    }
+
+    await connection.query(
+      `
+        DELETE prid FROM payroll_run_item_details prid
+        INNER JOIN payroll_run_items pri ON pri.id = prid.payroll_run_item_id
+        WHERE pri.employee_code = ?
+      `,
+      [employee.employeeNo]
+    );
+    await connection.query("DELETE FROM payroll_run_items WHERE employee_code = ?", [employee.employeeNo]);
+
+    await connection.query(
+      `
+        DELETE abi FROM arrear_bill_items abi
+        INNER JOIN arrear_bills ab ON ab.id = abi.arrear_bill_id
+        WHERE ab.employee_code = ?
+      `,
+      [employee.employeeNo]
+    );
+    await connection.query("DELETE FROM arrear_bills WHERE employee_code = ?", [employee.employeeNo]);
+
+    await connection.query("DELETE FROM employee_allowances WHERE employee_id = ?", [employee.id]);
+    await connection.query("DELETE FROM special_pay_entries WHERE employee_code = ?", [employee.employeeNo]);
+    await connection.query("DELETE FROM employee_scale_history WHERE employee_code = ?", [employee.employeeNo]);
+    await connection.query("DELETE FROM employee_status_history WHERE employee_code = ?", [employee.employeeNo]);
+
+    const [result] = await connection.query("DELETE FROM employees WHERE id = ?", [id]);
+
+    await connection.commit();
+    return result.affectedRows;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }

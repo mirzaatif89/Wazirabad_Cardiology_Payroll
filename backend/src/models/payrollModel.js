@@ -134,6 +134,14 @@ async function tableExists(tableName, connection = pool) {
   return rows.length > 0;
 }
 
+function isGrossWageCode(code) {
+  return code >= 1 && code <= 3999;
+}
+
+function isDeductionWageCode(code) {
+  return code >= 4001 && code <= 6999;
+}
+
 export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, paymentYear, connection = pool) {
   const employee = typeof employeeOrCode === "object"
     ? employeeOrCode
@@ -187,11 +195,11 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
     numericCode: Number(detail.numericCode || 0)
   }));
   const grossPay = lines
-    .filter((line) => line.numericCode >= 1 && line.numericCode <= 3999)
+    .filter((line) => isGrossWageCode(line.numericCode))
     .reduce((total, line) => total + line.amount, 0);
   const totalDeductions = lines
-    .filter((line) => line.numericCode >= 4001)
-    .reduce((total, line) => total + line.amount, 0);
+    .filter((line) => isDeductionWageCode(line.numericCode))
+    .reduce((total, line) => total + Math.abs(line.amount), 0);
   const netPay = grossPay - totalDeductions;
   const isBankSalary = Boolean(String(employee.bankCode || "").trim() && String(employee.accountNo || "").trim());
 
@@ -605,7 +613,16 @@ export async function getBudgetRequirement({ endingDate }) {
     `,
     [endingDate]
   );
-  const lines = rows.map((row) => ({ wageCode: row.wageCode, description: row.description, totalAmount: Number(row.totalAmount || 0) }));
+  const lines = rows.map((row) => {
+    const numericCode = Number(row.wageCode || 0);
+    const totalAmount = Number(row.totalAmount || 0);
+
+    return {
+      wageCode: row.wageCode,
+      description: row.description,
+      totalAmount: isDeductionWageCode(numericCode) ? -Math.abs(totalAmount) : totalAmount
+    };
+  });
   return { rows: lines, grandTotal: lines.reduce((total, row) => total + row.totalAmount, 0), endingDate };
 }
 

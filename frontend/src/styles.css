@@ -1019,6 +1019,29 @@ h1 {
   box-shadow: 0 0 0 3px rgba(11, 116, 107, 0.12);
 }
 
+.employee-no-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.employee-no-row button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  color: #ffffff;
+  background: #0b746b;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.employee-no-row button:hover,
+.employee-no-row button:focus-visible {
+  background: #075a54;
+}
+
 .employee-form input[readonly] {
   color: #33494d;
   background: #eef6f4;
@@ -2076,6 +2099,87 @@ h1 {
   font-size: 0.9rem;
 }
 
+.allowance-code-search {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #d8e4e2;
+  border-radius: 8px;
+  background: #f8fcfb;
+}
+
+.allowance-code-search label {
+  display: grid;
+  gap: 6px;
+}
+
+.allowance-code-search span {
+  color: #31474c;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.allowance-code-search input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid #c6d8d6;
+  border-radius: 7px;
+  color: #1f3034;
+  background: #ffffff;
+  outline: 0;
+}
+
+.allowance-code-search input:focus {
+  border-color: #0b746b;
+  box-shadow: 0 0 0 3px rgba(11, 116, 107, 0.12);
+}
+
+.allowance-code-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  max-height: 172px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.allowance-code-results button {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #c6d8d6;
+  border-radius: 7px;
+  color: #20383d;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.allowance-code-results button:hover,
+.allowance-code-results button:focus-visible {
+  border-color: #0b746b;
+  box-shadow: 0 0 0 3px rgba(11, 116, 107, 0.1);
+}
+
+.allowance-code-results strong {
+  color: #0b746b;
+  font-size: 0.88rem;
+}
+
+.allowance-code-results span {
+  color: #31474c;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.allowance-code-results p {
+  margin: 0;
+  color: #607478;
+  font-size: 0.88rem;
+}
+
 .allowance-table-wrap {
   max-width: 100%;
   overflow-x: auto;
@@ -2146,6 +2250,183 @@ h1 {
   color: #ffffff;
   background: #b4232a;
   cursor: pointer;
+}
+
+.wage-code-lookup-modal {
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 22px 70px rgba(18, 52, 56, 0.28);
+}
+
+.wage-code-lookup-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: start;
+}
+
+.wage-code-lookup-head p {
+  margin: 0 0 3px;
+  color: #607478;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.wage-code-lookup-head h3 {
+  margin: 0;
+  color: #17383c;
+  font-size: 1.2rem;
+}
+
+.wage-code-lookup-head button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  color: #ffffff;
+  background: #0b746b;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.wage-code-lookup-modal > input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #c6d8d6;
+  border-radius: 7px;
+  color: #1f3034;
+  background: #fbfefe;
+  outline: 0;
+}
+
+.wage-code-lookup-modal > input:focus {
+  border-color: #0b746b;
+  box-shadow: 0 0 0 3px rgba(11, 116, 107, 0.12);
+}
+
+.wage-code-lookup-table-wrap {
+  min-height: 260px;
+  overflow: auto;
+  border: 1px solid #d8e4e2;
+  border-radius: 8px;
+  scrollbar-width: thin;
+}
+
+.wage-code-lookup-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.wage-code-lookup-table th,
+.wage-code-lookup-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #e2ecea;
+  color: #20383d;
+  text-align: left;
+}
+
+.wage-code-lookup-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #ffffff;
+  background: #123438;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.wage-code-lookup-table tbody tr {
+  cursor: pointer;
+}
+
+.wage-code-lookup-table tbody tr:hover,
+.wage-code-lookup-table tbody tr:focus-visible {
+  background: #edf8f5;
+  outline: 0;
+}
+
+.wage-code-lookup-table td:first-child {
+  width: 94px;
+  color: #0b746b;
+  font-weight: 750;
+}
+
+.allowance-save-toast {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(12, 34, 37, 0.22);
+  animation: allowanceToastBackdrop 2200ms ease both;
+  pointer-events: none;
+}
+
+.allowance-save-toast > div {
+  min-width: min(360px, calc(100vw - 48px));
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 30px;
+  border: 1px solid rgba(185, 226, 214, 0.95);
+  border-radius: 8px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #08776e, #10a37f);
+  box-shadow: 0 22px 70px rgba(18, 52, 56, 0.28);
+  animation: allowanceToastCard 2200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.allowance-save-toast span {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #08776e;
+  background: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.allowance-save-toast strong {
+  font-size: 1.35rem;
+  letter-spacing: 0;
+}
+
+@keyframes allowanceToastBackdrop {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  10%,
+  86% {
+    opacity: 1;
+  }
+}
+
+@keyframes allowanceToastCard {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  14%,
+  82% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
 }
 
 .expired-allowance {

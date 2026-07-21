@@ -4,13 +4,8 @@ export const sidebarSections = [
     title: "Transactions",
     items: [
       "Employee List",
-      "Employee Pay Allowance Inquiry",
       "Pay Allowances Entry",
-      "Special Pay Edit",
-      "Check BOP",
-      "Check SDA",
-      "Allowances To Excel",
-      "Tax Schedule To Excel"
+      "Employee Pay Allowance Inquiry"
     ]
   },
   {
@@ -25,8 +20,6 @@ export const sidebarSections = [
   {
     title: "Proofs",
     items: [
-      "Salary Proof List",
-      "Salary Proof List 2",
       "Allowance Proof List",
       "Inactive Proof List",
       "Scale Audit Proof Printing"

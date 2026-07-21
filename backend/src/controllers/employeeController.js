@@ -2,6 +2,7 @@ import {
   deleteEmployeeById,
   getEmployeeByCode,
   getEmployees,
+  getNextEmployeeNo,
   insertEmployee,
   updateEmployeeById
 } from "../models/employeeModel.js";
@@ -25,6 +26,16 @@ export async function listEmployees(_req, res) {
   } catch (error) {
     console.error("Employee list failed:", error);
     return res.status(500).json({ message: "Employee list failed." });
+  }
+}
+
+export async function nextEmployeeNo(_req, res) {
+  try {
+    const employeeNo = await getNextEmployeeNo();
+    return res.json({ employeeNo });
+  } catch (error) {
+    console.error("Next employee no failed:", error);
+    return res.status(500).json({ message: "Next employee no failed." });
   }
 }
 

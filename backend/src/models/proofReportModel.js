@@ -87,7 +87,7 @@ function summarizePayroll(rows) {
 
     if (code >= 1 && code <= 999) summary.basicPay += amount;
     if (code >= 1000 && code <= 3999) summary.allowances += amount;
-    if (code >= 5000) summary.deductions += amount;
+    if (code >= 4001 && code <= 6999) summary.deductions += Math.abs(amount);
 
     return summary;
   }, { basicPay: 0, allowances: 0, deductions: 0 });

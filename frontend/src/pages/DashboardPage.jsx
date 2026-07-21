@@ -56,6 +56,7 @@ import {
   getEmployeeAllowances,
   getEmployeeByCode,
   getEmployees,
+  getNextEmployeeNo,
   getDepartments,
   getDesignations,
   getAllowancesExport,
@@ -119,7 +120,7 @@ const sidebarSections = navigationSections.map((section) => ({
 }));
 
 const newEmployeeFields = [
-  { label: "Employee No.", name: "employeeNo", defaultValue: "149" },
+  { label: "Employee No.", name: "employeeNo" },
   { label: "Name", name: "name" },
   { label: "Father Name", name: "fatherName" },
   { label: "Email", name: "email", type: "email" },
@@ -136,7 +137,7 @@ const newEmployeeFields = [
   { label: "Date Of Joining", name: "dateOfJoining", type: "date" },
   { label: "Department Code", name: "departmentCode" },
   { label: "Department", name: "department", readOnly: true },
-  { label: "Service Type", name: "serviceType" },
+  { label: "Service Type", name: "serviceType", type: "select", options: ["Regular", "Contract", "Adhoc"] },
   { label: "Bank Code", name: "bankCode" },
   { label: "Bank", name: "bank", readOnly: true },
   { label: "Branch Code", name: "bankBranchCode" },
@@ -145,10 +146,9 @@ const newEmployeeFields = [
   { label: "GPF A/C No.", name: "gpfAccountNo" },
   { label: "NTN No.", name: "ntnNo" },
   { label: "PGHSF No.", name: "pghsfNo" },
-  { label: "Religion", name: "religion" },
+  { label: "Religion", name: "religion", type: "select", options: ["Muslim", "Non-Muslim"] },
   { label: "SAP #", name: "sapNo" },
-  { label: "Stop Date", name: "stopDate", type: "date" },
-  { label: "Special Designation", name: "specialDesignation" }
+  { label: "Stop Date", name: "stopDate", type: "date" }
 ];
 
 function findDepartmentByCode(departments, code) {
@@ -188,7 +188,14 @@ function findBankBranchByCode(branches, code) {
     return null;
   }
 
-  return branches.find((branch) => branch.code.toLowerCase() === cleanCode) || null;
+  const normalizedCode = cleanCode.replace(/^0+(?=\d)/, "");
+
+  return branches.find((branch) => {
+    const branchCode = String(branch.code || "").trim().toLowerCase();
+    const normalizedBranchCode = branchCode.replace(/^0+(?=\d)/, "");
+
+    return branchCode === cleanCode || normalizedBranchCode === normalizedCode;
+  }) || null;
 }
 
 function NewEmployeeEntryForm({ onSaved }) {
@@ -207,6 +214,12 @@ function NewEmployeeEntryForm({ onSaved }) {
   const [banks, setBanks] = useState([]);
   const [bankBranches, setBankBranches] = useState([]);
   const [saving, setSaving] = useState(false);
+
+  const loadNextEmployeeNo = async () => {
+    const employeeNo = await getNextEmployeeNo();
+    setForm((current) => ({ ...current, employeeNo }));
+    return employeeNo;
+  };
 
   const updateField = (event) => {
     const { name, value } = event.target;
@@ -269,24 +282,46 @@ function NewEmployeeEntryForm({ onSaved }) {
     setForm((current) => ({ ...current, [name]: value }));
   };
 
-  const handleReset = () => {
+  const handleGenerateEmployeeNo = async () => {
+    setStatus({ type: "", message: "" });
+
+    try {
+      await loadNextEmployeeNo();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const handleReset = async () => {
     setForm(initialForm);
     setStatus({ type: "", message: "" });
     setDepartmentStatus("");
     setDesignationStatus("");
     setBankStatus("");
     setBranchStatus("");
+
+    try {
+      await loadNextEmployeeNo();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (event.nativeEvent?.submitter?.name !== "saveEmployee") {
+      return;
+    }
+
     setSaving(true);
     setStatus({ type: "", message: "" });
 
     try {
       const result = await createEmployee(form);
       setStatus({ type: "success", message: result.message });
-      setForm((current) => ({ ...initialForm, employeeNo: current.employeeNo }));
+      setForm(initialForm);
+      await loadNextEmployeeNo();
       if (onSaved) {
         onSaved();
       }
@@ -326,6 +361,10 @@ function NewEmployeeEntryForm({ onSaved }) {
     loadDepartments();
   }, []);
 
+  useEffect(() => {
+    handleGenerateEmployeeNo();
+  }, []);
+
   return (
     <section className="employee-entry-panel" aria-label="New employee entry form">
       <div className="form-title-row">
@@ -352,14 +391,30 @@ function NewEmployeeEntryForm({ onSaved }) {
                 ))}
               </select>
             ) : (
-              <input
-                name={field.name}
-                type={field.type || "text"}
-                value={form[field.name]}
-                onChange={updateField}
-                readOnly={field.readOnly}
-                required={field.name === "employeeNo" || field.name === "name"}
-              />
+              field.name === "employeeNo" ? (
+                <div className="employee-no-row">
+                  <input
+                    name={field.name}
+                    type={field.type || "text"}
+                    value={form[field.name]}
+                    onChange={updateField}
+                    readOnly={field.readOnly}
+                    required
+                  />
+                  <button type="button" onClick={handleGenerateEmployeeNo}>
+                    Generate
+                  </button>
+                </div>
+              ) : (
+                <input
+                  name={field.name}
+                  type={field.type || "text"}
+                  value={form[field.name]}
+                  onChange={updateField}
+                  readOnly={field.readOnly}
+                  required={field.name === "name"}
+                />
+              )
             )}
           </label>
         ))}
@@ -386,7 +441,7 @@ function NewEmployeeEntryForm({ onSaved }) {
 
         <div className="form-actions">
           <button type="reset">Clear</button>
-          <button type="submit" disabled={saving}>
+          <button type="submit" name="saveEmployee" disabled={saving}>
             {saving ? "Saving..." : "Save Employee"}
           </button>
         </div>
@@ -2456,7 +2511,7 @@ const defaultAllowanceRows = Array.from({ length: 5 }, (_, index) => ({
   allowanceCode: index === 0 ? "0000" : "",
   description: "",
   amount: index === 0 ? "0" : "",
-  upto: index === 0 ? "2099-12-31" : ""
+  upto: "2099-12-31"
 }));
 
 function PayAllowancesEntry() {
@@ -2464,18 +2519,48 @@ function PayAllowancesEntry() {
   const [employee, setEmployee] = useState(null);
   const [allowances, setAllowances] = useState(defaultAllowanceRows);
   const [allowanceCodes, setAllowanceCodes] = useState([]);
+  const [activeAllowanceRowIndex, setActiveAllowanceRowIndex] = useState(0);
+  const [wageCodeSearch, setWageCodeSearch] = useState("");
+  const [isWageCodeLookupOpen, setIsWageCodeLookupOpen] = useState(false);
+  const [showAllowanceSaved, setShowAllowanceSaved] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const isAllowanceActive = (row) => !row.upto || row.upto >= today;
+  const isDeductionAllowanceCode = (code) => {
+    const numericCode = Number(String(code || "").replace(/^0+(?=\d)/, ""));
+    return numericCode >= 4001 && numericCode <= 6999;
+  };
   const activeAllowanceTotal = allowances.reduce((total, row) => {
     if (!isAllowanceActive(row)) {
       return total;
     }
 
-    return total + Number(row.amount || 0);
+    const amount = Number(row.amount || 0);
+    return total + (isDeductionAllowanceCode(row.allowanceCode) ? -Math.abs(amount) : amount);
   }, 0);
+  const filteredAllowanceCodes = wageCodeSearch.trim()
+    ? allowanceCodes.filter((wageCode) =>
+        [wageCode.code, wageCode.description, wageCode.category]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(wageCodeSearch.trim().toLowerCase()))
+      )
+    : allowanceCodes;
+
+  const findAllowanceCode = (value) => {
+    const cleanValue = String(value || "").trim().toLowerCase();
+    const normalizedValue = cleanValue.replace(/^0+(?=\d)/, "");
+
+    if (!cleanValue) {
+      return null;
+    }
+
+    return allowanceCodes.find((wageCode) => {
+      const code = String(wageCode.code || "").trim().toLowerCase();
+      return code === cleanValue || code.replace(/^0+(?=\d)/, "") === normalizedValue;
+    }) || null;
+  };
 
   const loadEmployee = async () => {
     if (!employeeCode.trim()) {
@@ -2490,7 +2575,11 @@ function PayAllowancesEntry() {
       const foundEmployee = await getEmployeeByCode(employeeCode.trim());
       const allowanceData = await getEmployeeAllowances(foundEmployee.id);
       setEmployee(foundEmployee);
-      setAllowances(allowanceData.allowances.length ? allowanceData.allowances : defaultAllowanceRows);
+      setAllowances(
+        allowanceData.allowances.length
+          ? allowanceData.allowances.map((allowance) => ({ ...allowance, upto: allowance.upto || "2099-12-31" }))
+          : defaultAllowanceRows
+      );
       setStatus({ type: "success", message: "Employee detail loaded." });
     } catch (error) {
       setEmployee(null);
@@ -2511,14 +2600,28 @@ function PayAllowancesEntry() {
   const loadAllowanceCodes = async () => {
     try {
       const result = await getWageCodes();
-      setAllowanceCodes(
-        result.filter((wageCode) =>
-          ["Allowance Codes", "Pay & Allowance Adjustment Codes"].includes(wageCode.category)
-        )
-      );
+      setAllowanceCodes(result);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
+  };
+
+  const applyAllowanceCode = (rowIndex, wageCode) => {
+    setAllowances((current) =>
+      current.map((row, index) =>
+        index === rowIndex
+          ? { ...row, allowanceCode: wageCode.code, description: wageCode.description || "" }
+          : row
+      )
+    );
+    setActiveAllowanceRowIndex(rowIndex);
+    setIsWageCodeLookupOpen(false);
+    setWageCodeSearch("");
+  };
+
+  const openWageCodeLookup = (rowIndex = activeAllowanceRowIndex) => {
+    setActiveAllowanceRowIndex(rowIndex);
+    setIsWageCodeLookupOpen(true);
   };
 
   const updateAllowance = (rowIndex, field, value) => {
@@ -2531,13 +2634,21 @@ function PayAllowancesEntry() {
         const nextRow = { ...row, [field]: value };
 
         if (field === "allowanceCode") {
-          const matchedCode = allowanceCodes.find((allowanceCode) => allowanceCode.code === value);
+          const matchedCode = findAllowanceCode(value);
+          nextRow.allowanceCode = matchedCode ? matchedCode.code : value;
           nextRow.description = matchedCode ? matchedCode.description : row.description;
         }
 
         return nextRow;
       })
     );
+  };
+
+  const handleAllowanceCodeKeyDown = (event, rowIndex) => {
+    if (event.key === "F1") {
+      event.preventDefault();
+      openWageCodeLookup(rowIndex);
+    }
   };
 
   const addAllowanceRow = () => {
@@ -2548,9 +2659,10 @@ function PayAllowancesEntry() {
         allowanceCode: "",
         description: "",
         amount: "",
-        upto: ""
+        upto: "2099-12-31"
       }
     ]);
+    setActiveAllowanceRowIndex(allowances.length);
   };
 
   const removeAllowanceRow = (rowIndex) => {
@@ -2559,6 +2671,7 @@ function PayAllowancesEntry() {
         .filter((_row, index) => index !== rowIndex)
         .map((row, index) => ({ ...row, srNo: index + 1 }))
     );
+    setActiveAllowanceRowIndex((current) => Math.max(0, Math.min(current, allowances.length - 2)));
   };
 
   const saveAllowances = async () => {
@@ -2571,8 +2684,10 @@ function PayAllowancesEntry() {
     setStatus({ type: "", message: "" });
 
     try {
-      const result = await saveEmployeeAllowances(employee.id, allowances);
-      setStatus({ type: "success", message: result.message });
+      await saveEmployeeAllowances(employee.id, allowances);
+      setStatus({ type: "", message: "" });
+      setShowAllowanceSaved(true);
+      window.setTimeout(() => setShowAllowanceSaved(false), 2200);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {
@@ -2583,6 +2698,23 @@ function PayAllowancesEntry() {
   useEffect(() => {
     loadAllowanceCodes();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "F1") {
+        event.preventDefault();
+        openWageCodeLookup();
+      }
+
+      if (event.key === "Escape" && isWageCodeLookupOpen) {
+        setIsWageCodeLookupOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeAllowanceRowIndex, isWageCodeLookupOpen]);
 
   return (
     <section className="allowance-entry-panel" aria-label="Pay allowances entry">
@@ -2666,10 +2798,11 @@ function PayAllowancesEntry() {
                 <td>{index + 1}</td>
                 <td>
                   <input
-                    list="pay-allowance-code-options"
                     value={row.allowanceCode}
+                    onFocus={() => setActiveAllowanceRowIndex(index)}
+                    onKeyDown={(event) => handleAllowanceCodeKeyDown(event, index)}
                     onChange={(event) => updateAllowance(index, "allowanceCode", event.target.value)}
-                    placeholder="Select or type"
+                    placeholder="F1"
                   />
                 </td>
                 <td>
@@ -2711,13 +2844,6 @@ function PayAllowancesEntry() {
             ))}
           </tbody>
         </table>
-        <datalist id="pay-allowance-code-options">
-          {allowanceCodes.map((allowanceCode) => (
-            <option value={allowanceCode.code} key={allowanceCode.code}>
-              {allowanceCode.description}
-            </option>
-          ))}
-        </datalist>
       </div>
 
       <div className="allowance-actions">
@@ -2726,6 +2852,71 @@ function PayAllowancesEntry() {
           {saving ? "Saving..." : "Save Allowances"}
         </button>
       </div>
+
+      {isWageCodeLookupOpen ? (
+        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Wage code lookup">
+          <div className="wage-code-lookup-modal">
+            <div className="wage-code-lookup-head">
+              <div>
+                <p>Row {activeAllowanceRowIndex + 1}</p>
+                <h3>Wage Code Lookup</h3>
+              </div>
+              <button type="button" onClick={() => setIsWageCodeLookupOpen(false)}>Close</button>
+            </div>
+            <input
+              type="search"
+              value={wageCodeSearch}
+              onChange={(event) => setWageCodeSearch(event.target.value)}
+              placeholder="Search code or description"
+              autoFocus
+            />
+            <div className="wage-code-lookup-table-wrap">
+              <table className="wage-code-lookup-table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Description</th>
+                    <th>Category</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAllowanceCodes.map((wageCode) => (
+                    <tr
+                      key={wageCode.code}
+                      onClick={() => applyAllowanceCode(activeAllowanceRowIndex, wageCode)}
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          applyAllowanceCode(activeAllowanceRowIndex, wageCode);
+                        }
+                      }}
+                    >
+                      <td>{wageCode.code}</td>
+                      <td>{wageCode.description}</td>
+                      <td>{wageCode.category || "-"}</td>
+                    </tr>
+                  ))}
+                  {!filteredAllowanceCodes.length ? (
+                    <tr>
+                      <td colSpan="3">No wage code found.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAllowanceSaved ? (
+        <div className="allowance-save-toast" role="status" aria-live="polite">
+          <div>
+            <span>OK</span>
+            <strong>Allowances Saved</strong>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

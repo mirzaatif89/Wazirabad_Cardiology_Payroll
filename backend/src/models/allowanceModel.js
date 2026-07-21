@@ -87,7 +87,12 @@ export async function getEmployeeAllowances(employeeId) {
 export async function getActiveAllowanceTotal(employeeId) {
   const [rows] = await pool.query(
     `
-      SELECT COALESCE(SUM(amount), 0) AS activeAllowanceTotal
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN CAST(allowance_code AS UNSIGNED) BETWEEN 4001 AND 6999 THEN -ABS(amount)
+          ELSE amount
+        END
+      ), 0) AS activeAllowanceTotal
       FROM employee_allowances
       WHERE employee_id = ?
         AND (upto IS NULL OR upto >= CURDATE())

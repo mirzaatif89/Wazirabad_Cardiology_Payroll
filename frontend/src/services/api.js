@@ -135,6 +135,17 @@ export async function getEmployees() {
   return data.employees;
 }
 
+export async function getNextEmployeeNo() {
+  const response = await fetch(`${API_BASE_URL}/employees/next-no`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Next employee no failed.");
+  }
+
+  return data.employeeNo;
+}
+
 export async function getEmployeeByCode(employeeNo) {
   const response = await fetch(`${API_BASE_URL}/employees/code/${encodeURIComponent(employeeNo)}`);
   const data = await response.json();
