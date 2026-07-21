@@ -823,6 +823,23 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
       .join("");
     const printWindow = window.open("", "_blank", "width=1100,height=700");
 
+    exportRowsToExcel(
+      selectedEmployees.map((employee) => ({
+        "Employee No.": employee.employeeNo || "",
+        Name: employee.name || "",
+        "Father Name": employee.fatherName || "",
+        Email: employee.email || "",
+        "Contact No.": employee.contactNo || "",
+        "CNIC No.": employee.cnicNo || "",
+        Designation: employee.designation || "",
+        Department: employee.department || "",
+        BPS: employee.bps || "",
+        "Place Of Posting": employee.placeOfPosting || "",
+        Status: getEmployeeListStatus(employee).label
+      })),
+      `${quickFilter === "bps" ? "bps-wise-staff-list" : "all-staff-list"}.xlsx`
+    );
+
     printWindow.document.write(`
       <!doctype html>
       <html>
@@ -3485,7 +3502,7 @@ function ChequePrintPage({ bankType }) {
       const result = await printCheque({ ...form, bankType });
       setCheque(result.data);
       setStatus({ type: "success", message: result.message });
-      window.setTimeout(() => window.print(), 150);
+      window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
@@ -3533,7 +3550,7 @@ function MonthRangeExportPage({ type }) {
           : result.data.rows.map((row) => ({ "Employee Code": row.employeeCode, Name: row.name, "Wage Code": row.wageCode, Description: row.description, Amount: row.amount, "Effective Date": row.effectiveDate }));
         exportRowsToExcel(rows, `${isTax ? "income-tax-schedule" : "complete-allowances"}-${filters.fromMonth}-${filters.fromYear}-to-${filters.toMonth}-${filters.toYear}.xlsx`);
       }
-      if (!excel && filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (!excel && filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
@@ -4059,7 +4076,7 @@ function ArrearBillEntry() {
         loaded: true
       });
       setShowEntryForm(false);
-      window.setTimeout(() => window.print(), 150);
+      window.setTimeout(() => printCurrentDocumentAsExcel("arrear-bill-print"), 150);
     } catch (error) {
       setPrintReport({ bills: [], grandTotal: 0, loaded: false });
       setStatus({ type: "error", message: error.message || "Arrear bills not found." });
@@ -4096,7 +4113,7 @@ function ArrearBillEntry() {
         loaded: true
       });
       setShowEntryForm(false);
-      window.setTimeout(() => window.print(), 150);
+      window.setTimeout(() => printCurrentDocumentAsExcel("arrear-bill-special-print"), 150);
     } catch (error) {
       setPrintReport({ bills: [], grandTotal: 0, loaded: false });
       setStatus({ type: "error", message: error.message || "Arrear bills not found." });
@@ -4662,7 +4679,7 @@ function ArrearBillReportPage({ groupBy }) {
       });
 
       if (filters.outputSelection === "printer") {
-        window.setTimeout(() => window.print(), 150);
+        window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       }
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -4842,6 +4859,18 @@ function BudgetExpenseEntry() {
       showToast("error", "Please allow popups to print the budget list.");
       return;
     }
+
+    exportRowsToExcel(
+      filteredTransactions.map((transaction) => ({
+        "Document #": transaction.documentNo || "",
+        Date: transaction.transactionDate || "",
+        Type: transaction.budgetType === "original" ? "Original" : "Supplementary",
+        Details: transaction.details || "-",
+        Total: Number(transaction.totalAmount || 0),
+        Status: transaction.status || ""
+      })),
+      "budget-transaction-list.xlsx"
+    );
 
     reportWindow.document.write(`
       <!doctype html>
@@ -5557,7 +5586,7 @@ function ArrearBillPrintPage() {
       setBill(loadedBill);
 
       if (outputSelection === "printer") {
-        window.setTimeout(() => window.print(), 150);
+        window.setTimeout(() => printCurrentDocumentAsExcel("arrear-bill-print"), 150);
       }
     } catch (error) {
       setBill(null);
@@ -5678,7 +5707,7 @@ function DocumentPrintingPage() {
       const result = await getDocumentByNumber(documentNo);
       setDocuments(result.data || []);
       if (outputSelection === "printer") {
-        window.setTimeout(() => window.print(), 150);
+        window.setTimeout(() => printCurrentDocumentAsExcel("document-printing"), 150);
       }
     } catch (error) {
       setDocuments([]);
@@ -5817,7 +5846,7 @@ function BudgetPositionPage() {
       const result = await getBudgetPosition(endingDate);
       setReport(result.data);
       if (outputSelection === "printer") {
-        window.setTimeout(() => window.print(), 150);
+        window.setTimeout(() => printCurrentDocumentAsExcel("budget-position"), 150);
       }
       if (outputSelection === "excel") {
         exportExcel(result.data);
@@ -6155,7 +6184,7 @@ function ProofReportShell({ title, endpoint, children, extraDefaults = {}, rende
       const result = await getProofReport(endpoint, filters);
       setReport(result.data);
       if (filters.outputSelection === "printer") {
-        window.setTimeout(() => window.print(), 150);
+        window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       }
     } catch (error) {
       setReport(null);
@@ -6341,6 +6370,93 @@ function exportRowsToExcel(rows, filename) {
   XLSX.writeFile(workbook, filename);
 }
 
+function sanitizeExcelFilename(filename) {
+  const cleanName = String(filename || "payroll-document")
+    .replace(/\.xlsx$/i, "")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return `${cleanName || "payroll-document"}.xlsx`;
+}
+
+function safeSheetName(name, fallback) {
+  return String(name || fallback || "Report")
+    .replace(/[\[\]\*?/\\:]/g, " ")
+    .slice(0, 31)
+    .trim() || "Report";
+}
+
+function getPrintableReportTitle() {
+  const titleNode = document.querySelector(
+    ".report-letterhead h3, .form-title-row h2, .workspace-panel h2, h1"
+  );
+
+  return titleNode?.textContent?.trim() || document.title || "Payroll Document";
+}
+
+function getVisiblePrintableTables() {
+  const tables = Array.from(document.querySelectorAll(
+    ".arrear-report-print-area table, .cheque-print-layout table, .print-report-table, .employee-table"
+  ));
+
+  return tables.filter((table, index, list) => (
+    list.indexOf(table) === index &&
+    table.offsetParent !== null &&
+    !table.closest(".no-print")
+  ));
+}
+
+function exportPrintableDocumentToExcel(filename) {
+  const workbook = XLSX.utils.book_new();
+  const tables = getVisiblePrintableTables();
+  const sheetNames = new Set();
+
+  if (tables.length) {
+    tables.forEach((table, index) => {
+      const worksheet = XLSX.utils.table_to_sheet(table);
+      const baseName = safeSheetName(
+        table.closest("section")?.querySelector("strong, h2, h3")?.textContent,
+        `Report ${index + 1}`
+      );
+      let sheetName = baseName;
+      let duplicateIndex = 2;
+
+      while (sheetNames.has(sheetName)) {
+        sheetName = safeSheetName(`${baseName} ${duplicateIndex}`, `Report ${index + 1}`);
+        duplicateIndex += 1;
+      }
+
+      sheetNames.add(sheetName);
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        sheetName
+      );
+    });
+  } else {
+    const printableNode = document.querySelector(".arrear-report-print-area, .cheque-print-layout, main");
+    const rows = (printableNode?.innerText || getPrintableReportTitle())
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => ({ Detail: line }));
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(rows.length ? rows : [{ Detail: "No printable data found." }]),
+      "Report"
+    );
+  }
+
+  XLSX.writeFile(workbook, sanitizeExcelFilename(filename || getPrintableReportTitle()));
+}
+
+function printCurrentDocumentAsExcel(filename) {
+  exportPrintableDocumentToExcel(filename);
+  window.print();
+}
+
 function PayrollReportShell({ title, endpoint, children, allowExcel = false, simple = false, extraDefaults = {}, exportRows }) {
   const [filters, setFilters] = useState(payrollDefaultFilters(extraDefaults));
   const [report, setReport] = useState(null);
@@ -6353,7 +6469,7 @@ function PayrollReportShell({ title, endpoint, children, allowExcel = false, sim
     try {
       const result = await getPayrollReport(endpoint, filters);
       setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       if (filters.outputSelection === "excel" && exportRows) exportRowsToExcel(exportRows(result.data), `${endpoint}-${filters.month}-${filters.year}.xlsx`);
     } catch (error) {
       setReport(null);
@@ -6945,7 +7061,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
           <h2>{title}</h2>
         </div>
         <div className="title-actions no-print">
-          {result ? <button className="refresh-button" type="button" onClick={() => window.print()}>Print</button> : null}
+          {result ? <button className="refresh-button" type="button" onClick={() => printCurrentDocumentAsExcel(title)}>Print</button> : null}
           {result ? <button type="button" onClick={exportResult}>Export Excel</button> : null}
         </div>
       </div>
@@ -7021,7 +7137,7 @@ function BudgetRequirementPage() {
     try {
       const result = await getPayrollBudgetRequirement(endingDate);
       setReport(result.data);
-      if (outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("budget-requirement"), 150);
       if (outputSelection === "excel") exportRowsToExcel(result.data.rows || [], `budget-requirement-${endingDate}.xlsx`);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -7052,7 +7168,7 @@ function SinglePaySlipPage() {
     try {
       const result = await getSinglePayrollPayslip(employeeCode, filters);
       setSlip(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slip"), 150);
     } catch (error) {
       setSlip(null);
       setStatus({ type: "error", message: error.message });
@@ -7101,7 +7217,7 @@ function PayDedSchedulePage({ title, defaultCode = "", defaultCodeKey = "", allo
     try {
       const result = await getReportModule("income-tax-schedule", filters);
       setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       if (filters.outputSelection === "excel") exportRowsToExcel(result.data.rows || [], `${title}-${filters.month}-${filters.year}.xlsx`);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -7122,7 +7238,7 @@ function SinglePaySlipsForMonthsPage() {
     try {
       const result = await getReportModule("payslips-for-months", filters);
       setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slips-for-months"), 150);
     } catch (error) { setStatus({ type: "error", message: error.message }); }
   };
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Single Pay Slips For Months</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Printer</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <PayslipView slips={report.slips || []} filters={{ month: `${filters.fromMonth}-${filters.toMonth}`, year: filters.year }} /> : null}</section>;
@@ -7134,7 +7250,7 @@ function DesignationWiseListPage() {
   const run = async () => {
     const result = await getReportModule("designation-wise-list", filters);
     setReport(result.data);
-    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("designation-wise-list"), 150);
   };
   return <section className="employee-entry-panel arrear-report-panel"><PayrollFilter title="Designation Wise List" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => setReport(null)} loading={false} simple /><div className="report-filter-panel no-print"><label><span>Designation Code</span><input value={filters.designationCode} onChange={(e) => setFilters((c) => ({ ...c, designationCode: e.target.value }))} /></label></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Designation Wise List" filterSummary={`${filters.month}/${filters.year}`} />{(report.designations || []).map((g) => <section className="print-employee-section" key={g.designation}><div className="print-employee-head"><strong>{g.designation}</strong></div><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th><th>Dept</th><th>Net Pay</th></tr></thead><tbody>{g.rows.map((r) => <tr key={r.employeeCode}><td>{r.employeeCode}</td><td>{r.name}</td><td>{r.department}</td><td className="amount-cell">{formatCurrency(r.netPay)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Subtotal</span><strong>PKR {formatCurrency(g.subtotal)}</strong></div></section>)}<div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.grandTotal)}</strong></div></div> : null}</section>;
 }
@@ -7146,7 +7262,7 @@ function AnnualIncomeTaxSchedulePage() {
   const run = async () => {
     const result = await getReportModule("annual-income-tax-schedule", filters);
     setReport(result.data);
-    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("annual-income-tax-schedule"), 150);
   };
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Annual Income Tax Schedule</h2></div></div><div className="report-filter-panel no-print"><label><span>Report For</span><select value={filters.reportFor} onChange={(e) => setFilters((c) => ({ ...c, reportFor: e.target.value }))}><option>All</option><option>Regular</option><option>Contract</option></select></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>To Year</span><input type="number" value={filters.toYear} onChange={(e) => setFilters((c) => ({ ...c, toYear: e.target.value }))} /></label><label><span>Code</span><input value={filters.code} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Annual Income Tax Schedule" filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}`} /><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Annual Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.annualTotal)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(report.totals[m])}</td>)}<td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
 }
@@ -7158,7 +7274,7 @@ function PostAuditPage() {
   const run = async () => {
     const result = await getReportModule("post-audit", filters);
     setReport(result.data);
-    if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+    if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("post-audit"), 150);
   };
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Post Audit</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Post Audit" filterSummary={report.employee ? `${report.employee.employeeCode} - ${report.employee.name}` : filters.employeeCode} /><table className="print-report-table"><thead><tr><th>Code</th><th>Description</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.wageCode}><td>{r.wageCode}</td><td>{r.description}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.total)}</td></tr>)}</tbody></table></div> : null}</section>;
 }
@@ -7174,7 +7290,7 @@ function ActiveInactiveReportPage({ monthwise = false }) {
     try {
       const result = await getReportModule(endpoint, filters);
       setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
     } catch (error) {
       notifyError(error.message);
     } finally {
@@ -7184,7 +7300,7 @@ function ActiveInactiveReportPage({ monthwise = false }) {
 
   return (
     <section className="module-card report-page">
-      <ReportToolbar title={title} onPrint={() => window.print()} />
+      <ReportToolbar title={title} onPrint={() => printCurrentDocumentAsExcel(title)} />
       <PayrollFilter filters={filters} setFilters={setFilters} onRun={run} loading={loading} simple={false} />
       {report ? (
         <div className="arrear-report-print-area">
