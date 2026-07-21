@@ -2012,22 +2012,22 @@ h1 {
 }
 
 .pay-status-toggle {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   min-width: 0;
-  margin: 0;
-  padding: 10px 12px;
+  margin: 2px 0 0;
+  padding: 7px 8px;
   border: 1px solid #cfe0dd;
-  border-radius: 8px;
+  border-radius: 7px;
   background: #ffffff;
 }
 
 .pay-status-toggle legend {
-  padding: 0 6px;
+  padding: 0 4px;
   color: #31474c;
-  font-size: 0.86rem;
+  font-size: 0.78rem;
   font-weight: 700;
 }
 
@@ -2035,9 +2035,9 @@ h1 {
   display: inline-flex;
   grid-auto-flow: column;
   align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 0 10px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
   border: 1px solid #c8d8d5;
   border-radius: 7px;
   background: #eef8f6;
@@ -2045,8 +2045,8 @@ h1 {
 }
 
 .pay-status-toggle input {
-  width: 16px;
-  min-height: 16px;
+  width: 15px;
+  min-height: 15px;
   padding: 0;
   margin: 0;
   accent-color: #0b746b;
@@ -2060,7 +2060,7 @@ h1 {
 
 .pay-status-toggle span {
   color: inherit;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
 }

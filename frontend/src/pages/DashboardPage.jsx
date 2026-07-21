@@ -1064,29 +1064,6 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
             <h3>Edit Employee Information</h3>
             <button type="button" onClick={cancelEdit}>Close</button>
           </div>
-          <fieldset className="pay-status-toggle">
-            <legend>Pay Status</legend>
-            <label>
-              <input
-                type="radio"
-                name="payStatus"
-                value="active"
-                checked={(editForm.status || "active") === "active"}
-                onChange={() => updateEditPayStatus("active")}
-              />
-              <span>Pay Active</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="payStatus"
-                value="inactive"
-                checked={(editForm.status || "active") === "inactive"}
-                onChange={() => updateEditPayStatus("inactive")}
-              />
-              <span>Pay Stop</span>
-            </label>
-          </fieldset>
           {newEmployeeFields.map((field) => (
             <label className={field.wide ? "wide-field" : ""} key={field.name}>
               <span>{field.label}</span>
@@ -1113,6 +1090,31 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
                   placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
                 />
               )}
+              {field.name === "stopDate" ? (
+                <fieldset className="pay-status-toggle">
+                  <legend>Pay Status</legend>
+                  <label>
+                    <input
+                      type="radio"
+                      name="payStatus"
+                      value="active"
+                      checked={(editForm.status || "active") === "active"}
+                      onChange={() => updateEditPayStatus("active")}
+                    />
+                    <span>Pay Active</span>
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="payStatus"
+                      value="inactive"
+                      checked={(editForm.status || "active") === "inactive"}
+                      onChange={() => updateEditPayStatus("inactive")}
+                    />
+                    <span>Pay Stop</span>
+                  </label>
+                </fieldset>
+              ) : null}
             </label>
           ))}
           <div className="form-actions">
