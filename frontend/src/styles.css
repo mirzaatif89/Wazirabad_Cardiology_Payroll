@@ -2011,6 +2011,60 @@ h1 {
   cursor: pointer;
 }
 
+.pay-status-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #cfe0dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.pay-status-toggle legend {
+  padding: 0 6px;
+  color: #31474c;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.pay-status-toggle label {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c8d8d5;
+  border-radius: 7px;
+  background: #eef8f6;
+  cursor: pointer;
+}
+
+.pay-status-toggle input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: #0b746b;
+}
+
+.pay-status-toggle label:has(input:checked) {
+  border-color: #0b746b;
+  color: #063f3b;
+  background: #d9f3ee;
+}
+
+.pay-status-toggle span {
+  color: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .allowance-entry-panel {
   max-width: 100%;
   padding: var(--panel-padding);

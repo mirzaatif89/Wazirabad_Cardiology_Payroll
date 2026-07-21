@@ -287,6 +287,10 @@ function filterEmployeeCodeLookupRows(rows, search) {
   );
 }
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
   if (!lookup) {
     return null;
@@ -861,9 +865,12 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
   };
 
   const startEdit = (employee) => {
-    const formData = Object.fromEntries(
-      newEmployeeFields.map((field) => [field.name, employee[field.name] || ""])
-    );
+    const formData = {
+      ...Object.fromEntries(
+        newEmployeeFields.map((field) => [field.name, employee[field.name] || ""])
+      ),
+      status: employee.status || "active"
+    };
 
     setEditingEmployee(employee);
     setEditForm(formData);
@@ -928,6 +935,14 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
     }
 
     setEditForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const updateEditPayStatus = (nextStatus) => {
+    setEditForm((current) => ({
+      ...current,
+      status: nextStatus,
+      stopDate: nextStatus === "active" ? "" : current.stopDate || todayIsoDate()
+    }));
   };
 
   const openEditCodeLookup = (fieldName) => {
@@ -1049,6 +1064,29 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
             <h3>Edit Employee Information</h3>
             <button type="button" onClick={cancelEdit}>Close</button>
           </div>
+          <fieldset className="pay-status-toggle">
+            <legend>Pay Status</legend>
+            <label>
+              <input
+                type="radio"
+                name="payStatus"
+                value="active"
+                checked={(editForm.status || "active") === "active"}
+                onChange={() => updateEditPayStatus("active")}
+              />
+              <span>Pay Active</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="payStatus"
+                value="inactive"
+                checked={(editForm.status || "active") === "inactive"}
+                onChange={() => updateEditPayStatus("inactive")}
+              />
+              <span>Pay Stop</span>
+            </label>
+          </fieldset>
           {newEmployeeFields.map((field) => (
             <label className={field.wide ? "wide-field" : ""} key={field.name}>
               <span>{field.label}</span>
