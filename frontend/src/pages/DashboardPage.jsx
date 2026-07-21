@@ -198,6 +198,157 @@ function findBankBranchByCode(branches, code) {
   }) || null;
 }
 
+const employeeCodeLookupFieldNames = new Set([
+  "designationCode",
+  "departmentCode",
+  "bankCode",
+  "bankBranchCode"
+]);
+
+function getEmployeeCodeLookupConfig(fieldName, sources) {
+  const {
+    departments = [],
+    designations = [],
+    accountCodes = [],
+    banks = [],
+    bankBranches = []
+  } = sources;
+
+  if (fieldName === "designationCode") {
+    return {
+      fieldName,
+      eyebrow: "Designation Code",
+      title: "Designation Code Lookup",
+      emptyMessage: "No designation code found.",
+      rows: [...designations, ...accountCodes].map((item, index) => ({
+        key: `designation-${item.code}-${index}`,
+        code: item.code || "",
+        description: item.designation || ""
+      }))
+    };
+  }
+
+  if (fieldName === "departmentCode") {
+    return {
+      fieldName,
+      eyebrow: "Department Code",
+      title: "Department Code Lookup",
+      emptyMessage: "No department code found.",
+      rows: departments.map((item, index) => ({
+        key: `department-${item.code}-${index}`,
+        code: item.code || "",
+        description: item.department || ""
+      }))
+    };
+  }
+
+  if (fieldName === "bankCode") {
+    return {
+      fieldName,
+      eyebrow: "Bank Code",
+      title: "Bank Code Lookup",
+      emptyMessage: "No bank code found.",
+      rows: banks.map((item, index) => ({
+        key: `bank-${item.code}-${index}`,
+        code: item.code || "",
+        description: item.bank || ""
+      }))
+    };
+  }
+
+  if (fieldName === "bankBranchCode") {
+    return {
+      fieldName,
+      eyebrow: "Branch Code",
+      title: "Branch Code Lookup",
+      emptyMessage: "No branch code found.",
+      rows: bankBranches.map((item, index) => ({
+        key: `branch-${item.code}-${index}`,
+        code: item.code || "",
+        description: item.branch || ""
+      }))
+    };
+  }
+
+  return null;
+}
+
+function filterEmployeeCodeLookupRows(rows, search) {
+  const query = search.trim().toLowerCase();
+
+  if (!query) {
+    return rows;
+  }
+
+  return rows.filter((row) =>
+    [row.code, row.description].some((value) =>
+      String(value || "").toLowerCase().includes(query)
+    )
+  );
+}
+
+function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
+  if (!lookup) {
+    return null;
+  }
+
+  const filteredRows = filterEmployeeCodeLookupRows(lookup.rows, search);
+
+  return (
+    <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label={lookup.title}>
+      <div className="wage-code-lookup-modal">
+        <div className="wage-code-lookup-head">
+          <div>
+            <p>{lookup.eyebrow}</p>
+            <h3>{lookup.title}</h3>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Search code or description"
+          autoFocus
+        />
+        <div className="wage-code-lookup-table-wrap">
+          <table className="wage-code-lookup-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => (
+                <tr
+                  key={row.key}
+                  onClick={() => onSelect(row)}
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onSelect(row);
+                    }
+                  }}
+                >
+                  <td>{row.code}</td>
+                  <td>{row.description || "-"}</td>
+                </tr>
+              ))}
+              {!filteredRows.length ? (
+                <tr>
+                  <td colSpan="2">{lookup.emptyMessage}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NewEmployeeEntryForm({ onSaved }) {
   const initialForm = Object.fromEntries(
     newEmployeeFields.map((field) => [field.name, field.defaultValue || ""])
@@ -214,6 +365,16 @@ function NewEmployeeEntryForm({ onSaved }) {
   const [banks, setBanks] = useState([]);
   const [bankBranches, setBankBranches] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [codeLookup, setCodeLookup] = useState(null);
+  const [codeLookupSearch, setCodeLookupSearch] = useState("");
+
+  const employeeCodeLookupSources = {
+    departments,
+    designations,
+    accountCodes,
+    banks,
+    bankBranches
+  };
 
   const loadNextEmployeeNo = async () => {
     const employeeNo = await getNextEmployeeNo();
@@ -280,6 +441,36 @@ function NewEmployeeEntryForm({ onSaved }) {
     }
 
     setForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const openCodeLookup = (fieldName) => {
+    const lookup = getEmployeeCodeLookupConfig(fieldName, employeeCodeLookupSources);
+
+    if (!lookup) {
+      return;
+    }
+
+    setCodeLookup(lookup);
+    setCodeLookupSearch("");
+  };
+
+  const handleCodeFieldKeyDown = (event, fieldName) => {
+    if (event.key !== "F1" || !employeeCodeLookupFieldNames.has(fieldName)) {
+      return;
+    }
+
+    event.preventDefault();
+    openCodeLookup(fieldName);
+  };
+
+  const applyCodeLookupRow = (row) => {
+    if (!codeLookup) {
+      return;
+    }
+
+    updateField({ target: { name: codeLookup.fieldName, value: row.code } });
+    setCodeLookup(null);
+    setCodeLookupSearch("");
   };
 
   const handleGenerateEmployeeNo = async () => {
@@ -411,8 +602,10 @@ function NewEmployeeEntryForm({ onSaved }) {
                   type={field.type || "text"}
                   value={form[field.name]}
                   onChange={updateField}
+                  onKeyDown={(event) => handleCodeFieldKeyDown(event, field.name)}
                   readOnly={field.readOnly}
                   required={field.name === "name"}
+                  placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
                 />
               )
             )}
@@ -446,6 +639,14 @@ function NewEmployeeEntryForm({ onSaved }) {
           </button>
         </div>
       </form>
+
+      <EmployeeCodeLookupModal
+        lookup={codeLookup}
+        search={codeLookupSearch}
+        onSearch={setCodeLookupSearch}
+        onClose={() => setCodeLookup(null)}
+        onSelect={applyCodeLookupRow}
+      />
     </section>
   );
 }
@@ -466,6 +667,16 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
   const [editForm, setEditForm] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [pendingDeleteEmployee, setPendingDeleteEmployee] = useState(null);
+  const [editCodeLookup, setEditCodeLookup] = useState(null);
+  const [editCodeLookupSearch, setEditCodeLookupSearch] = useState("");
+
+  const employeeCodeLookupSources = {
+    departments,
+    designations,
+    accountCodes,
+    banks,
+    bankBranches
+  };
 
   const searchableEmployees = employees.filter((employee) => {
     const query = searchTerm.trim().toLowerCase();
@@ -662,6 +873,8 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
   const cancelEdit = () => {
     setEditingEmployee(null);
     setEditForm(null);
+    setEditCodeLookup(null);
+    setEditCodeLookupSearch("");
   };
 
   const updateEditField = (event) => {
@@ -715,6 +928,36 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
     }
 
     setEditForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const openEditCodeLookup = (fieldName) => {
+    const lookup = getEmployeeCodeLookupConfig(fieldName, employeeCodeLookupSources);
+
+    if (!lookup) {
+      return;
+    }
+
+    setEditCodeLookup(lookup);
+    setEditCodeLookupSearch("");
+  };
+
+  const handleEditCodeFieldKeyDown = (event, fieldName) => {
+    if (event.key !== "F1" || !employeeCodeLookupFieldNames.has(fieldName)) {
+      return;
+    }
+
+    event.preventDefault();
+    openEditCodeLookup(fieldName);
+  };
+
+  const applyEditCodeLookupRow = (row) => {
+    if (!editCodeLookup) {
+      return;
+    }
+
+    updateEditField({ target: { name: editCodeLookup.fieldName, value: row.code } });
+    setEditCodeLookup(null);
+    setEditCodeLookupSearch("");
   };
 
   const saveEdit = async (event) => {
@@ -826,8 +1069,10 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
                   type={field.type || "text"}
                   value={editForm[field.name]}
                   onChange={updateEditField}
+                  onKeyDown={(event) => handleEditCodeFieldKeyDown(event, field.name)}
                   readOnly={field.readOnly}
                   required={field.name === "employeeNo" || field.name === "name"}
+                  placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
                 />
               )}
             </label>
@@ -840,6 +1085,14 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
           </div>
         </form>
       ) : null}
+
+      <EmployeeCodeLookupModal
+        lookup={editCodeLookup}
+        search={editCodeLookupSearch}
+        onSearch={setEditCodeLookupSearch}
+        onClose={() => setEditCodeLookup(null)}
+        onSelect={applyEditCodeLookupRow}
+      />
 
       <div className="table-wrap">
         <table className="employee-table">
