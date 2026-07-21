@@ -93,9 +93,12 @@ export async function getActiveAllowanceTotal(employeeId) {
           ELSE amount
         END
       ), 0) AS activeAllowanceTotal
-      FROM employee_allowances
-      WHERE employee_id = ?
-        AND (upto IS NULL OR upto >= CURDATE())
+      FROM employee_allowances ea
+      INNER JOIN employees e ON e.id = ea.employee_id
+      WHERE ea.employee_id = ?
+        AND COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
+        AND (ea.upto IS NULL OR ea.upto >= CURDATE())
     `,
     [employeeId]
   );

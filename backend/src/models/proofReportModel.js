@@ -48,6 +48,8 @@ async function getFilteredEmployees(filters = {}) {
         DATE_FORMAT(e.stop_date, '%Y-%m-%d') AS stopDate
       FROM employees e
       WHERE ${where}
+        AND COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no
     `,
     params

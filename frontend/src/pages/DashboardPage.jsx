@@ -551,6 +551,36 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
     });
   };
 
+  const formatEmployeeStatusDate = (value) => {
+    if (!value) {
+      return "";
+    }
+
+    const [year, month, day] = String(value).slice(0, 10).split("-");
+
+    if (!year || !month || !day) {
+      return String(value);
+    }
+
+    return `${day}/${month}/${year}`;
+  };
+
+  const getEmployeeListStatus = (employee) => {
+    if (employee.stopDate && employee.stopDate <= new Date().toISOString().slice(0, 10)) {
+      return {
+        label: `Stop: ${formatEmployeeStatusDate(employee.stopDate)}`,
+        tone: "stopped"
+      };
+    }
+
+    const status = String(employee.status || "active").toLowerCase();
+
+    return {
+      label: status === "inactive" ? "Inactive" : "Active",
+      tone: status === "inactive" ? "inactive" : "active"
+    };
+  };
+
   const printSelectedEmployees = () => {
     if (!selectedEmployees.length) {
       setStatus({ type: "error", message: "Please select at least one employee to print." });
@@ -571,6 +601,7 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
             <td>${employee.department || ""}</td>
             <td>${employee.bps || ""}</td>
             <td>${employee.placeOfPosting || ""}</td>
+            <td>${getEmployeeListStatus(employee).label}</td>
           </tr>
         `
       )
@@ -605,6 +636,7 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
                 <th>Department</th>
                 <th>BPS</th>
                 <th>Place Of Posting</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -836,56 +868,66 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
               <th>Department</th>
               <th>BPS</th>
               <th>Place Of Posting</th>
+              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {displayedEmployees.map((employee) => (
-              <tr key={employee.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selectedEmployeeIds.includes(employee.id)}
-                    onChange={() => toggleEmployeeSelection(employee.id)}
-                    aria-label={`Select ${employee.name}`}
-                  />
-                </td>
-                <td>{employee.employeeNo}</td>
-                <td>{employee.name}</td>
-                <td>{employee.fatherName || "-"}</td>
-                <td>{employee.email || "-"}</td>
-                <td>{employee.contactNo || "-"}</td>
-                <td>{employee.cnicNo || "-"}</td>
-                <td>{employee.designation || "-"}</td>
-                <td>{employee.department || "-"}</td>
-                <td>{employee.bps || "-"}</td>
-                <td>{employee.placeOfPosting || "-"}</td>
-                <td>
-                  <select
-                    className="employee-action-select"
-                    value=""
-                    aria-label={`Actions for employee ${employee.employeeNo}`}
-                    onChange={(event) => {
-                      if (event.target.value === "edit") {
-                        startEdit(employee);
-                      }
+            {displayedEmployees.map((employee) => {
+              const employeeStatus = getEmployeeListStatus(employee);
 
-                      if (event.target.value === "delete") {
-                        setPendingDeleteEmployee(employee);
-                      }
-                    }}
-                  >
-                    <option value="">Action</option>
-                    <option value="edit">Edit</option>
-                    <option value="delete">Delete</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
+              return (
+                <tr key={employee.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedEmployeeIds.includes(employee.id)}
+                      onChange={() => toggleEmployeeSelection(employee.id)}
+                      aria-label={`Select ${employee.name}`}
+                    />
+                  </td>
+                  <td>{employee.employeeNo}</td>
+                  <td>{employee.name}</td>
+                  <td>{employee.fatherName || "-"}</td>
+                  <td>{employee.email || "-"}</td>
+                  <td>{employee.contactNo || "-"}</td>
+                  <td>{employee.cnicNo || "-"}</td>
+                  <td>{employee.designation || "-"}</td>
+                  <td>{employee.department || "-"}</td>
+                  <td>{employee.bps || "-"}</td>
+                  <td>{employee.placeOfPosting || "-"}</td>
+                  <td>
+                    <span className={`employee-status-pill ${employeeStatus.tone}`}>
+                      {employeeStatus.label}
+                    </span>
+                  </td>
+                  <td>
+                    <select
+                      className="employee-action-select"
+                      value=""
+                      aria-label={`Actions for employee ${employee.employeeNo}`}
+                      onChange={(event) => {
+                        if (event.target.value === "edit") {
+                          startEdit(employee);
+                        }
+
+                        if (event.target.value === "delete") {
+                          setPendingDeleteEmployee(employee);
+                        }
+                      }}
+                    >
+                      <option value="">Action</option>
+                      <option value="edit">Edit</option>
+                      <option value="delete">Delete</option>
+                    </select>
+                  </td>
+                </tr>
+              );
+            })}
 
             {!displayedEmployees.length && !loading ? (
               <tr>
-                <td colSpan="12">No matching employees found.</td>
+                <td colSpan="13">No matching employees found.</td>
               </tr>
             ) : null}
           </tbody>
@@ -2527,19 +2569,42 @@ function PayAllowancesEntry() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
+  const isEmployeeStopped = Boolean(employee?.stopDate && employee.stopDate <= today);
+  const formatAllowanceStopDate = (value) => {
+    const [year, month, day] = String(value || "").slice(0, 10).split("-");
+    return year && month && day ? `${day}/${month}/${year}` : String(value || "");
+  };
   const isAllowanceActive = (row) => !row.upto || row.upto >= today;
   const isDeductionAllowanceCode = (code) => {
     const numericCode = Number(String(code || "").replace(/^0+(?=\d)/, ""));
     return numericCode >= 4001 && numericCode <= 6999;
   };
-  const activeAllowanceTotal = allowances.reduce((total, row) => {
+  const isGrossAllowanceCode = (code) => {
+    const numericCode = Number(String(code || "").replace(/^0+(?=\d)/, ""));
+    return numericCode >= 1 && numericCode <= 3999;
+  };
+  const activeSalarySummary = allowances.reduce((summary, row) => {
+    if (isEmployeeStopped) {
+      return summary;
+    }
+
     if (!isAllowanceActive(row)) {
-      return total;
+      return summary;
     }
 
     const amount = Number(row.amount || 0);
-    return total + (isDeductionAllowanceCode(row.allowanceCode) ? -Math.abs(amount) : amount);
-  }, 0);
+
+    if (isDeductionAllowanceCode(row.allowanceCode)) {
+      return { ...summary, deductions: summary.deductions + Math.abs(amount) };
+    }
+
+    if (isGrossAllowanceCode(row.allowanceCode)) {
+      return { ...summary, grossPay: summary.grossPay + amount };
+    }
+
+    return summary;
+  }, { grossPay: 0, deductions: 0 });
+  const totalAfterDeduction = activeSalarySummary.grossPay - activeSalarySummary.deductions;
   const filteredAllowanceCodes = wageCodeSearch.trim()
     ? allowanceCodes.filter((wageCode) =>
         [wageCode.code, wageCode.description, wageCode.category]
@@ -2773,10 +2838,21 @@ function PayAllowancesEntry() {
 
       <div className="allowance-summary">
         <div>
-          <span>Salary Active Allowances</span>
-          <strong>PKR {activeAllowanceTotal.toLocaleString()}</strong>
+          <span>Gross Pay</span>
+          <strong>PKR {activeSalarySummary.grossPay.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>Deduction</span>
+          <strong>PKR {activeSalarySummary.deductions.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>Total After Deduction</span>
+          <strong>PKR {totalAfterDeduction.toLocaleString()}</strong>
         </div>
         <p>Expired allowance rows are not included in employee salary.</p>
+        {isEmployeeStopped ? (
+          <p>Employee stopped on {formatAllowanceStopDate(employee.stopDate)}; salary and allowances are stopped.</p>
+        ) : null}
       </div>
 
       <div className="allowance-table-wrap">

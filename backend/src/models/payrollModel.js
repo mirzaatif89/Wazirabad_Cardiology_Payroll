@@ -80,6 +80,7 @@ function employeeWhere({ deptCode = "999", gazNg = "A", reportFor = "All" } = {}
 
 async function getEmployeesForPayroll(connection, filters = {}) {
   const { where, params } = employeeWhere(filters);
+  const activeOnDate = filters.activeOnDate || new Date().toISOString().slice(0, 10);
   const [rows] = await connection.query(
     `
       SELECT
@@ -97,14 +98,15 @@ async function getEmployeesForPayroll(connection, filters = {}) {
       FROM employees e
       WHERE ${where}
         AND COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > ?)
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no
     `,
-    params
+    [...params, activeOnDate]
   );
   return rows;
 }
 
-async function findEmployeeForPayroll(employeeCode, connection = pool) {
+async function findEmployeeForPayroll(employeeCode, connection = pool, activeOnDate = new Date().toISOString().slice(0, 10)) {
   const [[employee]] = await connection.query(
     `
       SELECT
@@ -122,9 +124,10 @@ async function findEmployeeForPayroll(employeeCode, connection = pool) {
       FROM employees e
       WHERE e.employee_no = ?
         AND COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > ?)
       LIMIT 1
     `,
-    [String(employeeCode)]
+    [String(employeeCode), activeOnDate]
   );
   return employee || null;
 }
@@ -143,15 +146,15 @@ function isDeductionWageCode(code) {
 }
 
 export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, paymentYear, connection = pool) {
+  const validDate = monthEndDate(paymentMonth, paymentYear);
   const employee = typeof employeeOrCode === "object"
     ? employeeOrCode
-    : await findEmployeeForPayroll(employeeOrCode, connection);
+    : await findEmployeeForPayroll(employeeOrCode, connection, validDate);
 
   if (!employee) {
     return { grossPay: 0, totalDeductions: 0, netPay: 0, lineItems: [], details: [] };
   }
 
-  const validDate = monthEndDate(paymentMonth, paymentYear);
   const [details] = await connection.query(
     `
       SELECT
@@ -234,7 +237,8 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
       await connection.query("DELETE FROM payroll_run_items WHERE payroll_run_id = ?", [runId]);
     }
 
-    const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor });
+    const validDate = monthEndDate(paymentMonth, paymentYear);
+    const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor, activeOnDate: validDate });
     const results = [];
 
     for (const employee of employees) {
@@ -355,6 +359,7 @@ export async function countPayrollEmployees({ deptCode = "999", gazNg = "A", rep
       FROM employees e
       WHERE ${where}
         AND COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
     `,
     params
   );
@@ -607,11 +612,12 @@ export async function getBudgetRequirement({ endingDate }) {
       INNER JOIN employees e ON e.id = ea.employee_id
       LEFT JOIN wage_codes wc ON wc.code = LPAD(ea.allowance_code, 4, '0')
       WHERE COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > ?)
         AND (ea.upto IS NULL OR ea.upto >= ?)
       GROUP BY LPAD(ea.allowance_code, 4, '0'), COALESCE(NULLIF(ea.description, ''), wc.description)
       ORDER BY CAST(wageCode AS UNSIGNED)
     `,
-    [endingDate]
+    [endingDate, endingDate]
   );
   const lines = rows.map((row) => {
     const numericCode = Number(row.wageCode || 0);

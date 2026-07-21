@@ -113,6 +113,7 @@ export async function previewPercentAllowance({ sourceWageCode, percentage, targ
       FROM employees e
       INNER JOIN employee_allowances ea ON ea.employee_id = e.id
       WHERE COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
         AND LPAD(ea.allowance_code, 4, '0') = ?
         AND (ea.upto IS NULL OR ea.upto >= CURDATE())
         ${bpsSql}
@@ -219,6 +220,7 @@ export async function previewFixedAllowance({ amount, targetWageCode, designatio
         e.service_type AS serviceType
       FROM employees e
       WHERE COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
         ${designationSql}
         ${serviceSql}
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no
@@ -315,6 +317,7 @@ export async function previewAnnualIncrement({ incrementPercentage, appliesToWag
       FROM employees e
       INNER JOIN employee_allowances ea ON ea.employee_id = e.id
       WHERE COALESCE(e.status, 'active') = 'active'
+        AND (e.stop_date IS NULL OR e.stop_date > CURDATE())
         AND LPAD(ea.allowance_code, 4, '0') = ?
         AND (ea.upto IS NULL OR ea.upto >= CURDATE())
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no

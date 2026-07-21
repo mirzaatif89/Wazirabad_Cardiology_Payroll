@@ -1524,7 +1524,7 @@ h1 {
 
 .employee-table {
   width: max-content;
-  min-width: 1180px;
+  min-width: 1300px;
   table-layout: fixed;
   border-collapse: collapse;
   background: #ffffff;
@@ -1631,11 +1631,45 @@ h1 {
   width: 128px;
 }
 
+.employee-table th:nth-child(12),
+.employee-table td:nth-child(12) {
+  width: 132px;
+  text-align: center;
+}
+
 .employee-table th:last-child,
 .employee-table td:last-child {
   width: 125px;
   text-align: center;
   overflow: visible;
+}
+
+.employee-status-pill {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 76px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.employee-status-pill.active {
+  color: #08776e;
+  background: #d9f6ea;
+}
+
+.employee-status-pill.inactive {
+  color: #8a5b00;
+  background: #fff3cf;
+}
+
+.employee-status-pill.stopped {
+  color: #9b1c24;
+  background: #ffe0e3;
 }
 
 .employee-action-select {
@@ -2084,6 +2118,10 @@ h1 {
   font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.allowance-summary > div {
+  min-width: 170px;
 }
 
 .allowance-summary strong {
