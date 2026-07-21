@@ -1065,7 +1065,13 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
             <button type="button" onClick={cancelEdit}>Close</button>
           </div>
           {newEmployeeFields.map((field) => (
-            <label className={field.wide ? "wide-field" : ""} key={field.name}>
+            <label
+              className={[
+                field.wide ? "wide-field" : "",
+                field.name === "stopDate" ? "stop-date-pay-field" : ""
+              ].filter(Boolean).join(" ")}
+              key={field.name}
+            >
               <span>{field.label}</span>
               {field.type === "select" ? (
                 <select

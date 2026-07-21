@@ -2011,13 +2011,35 @@ h1 {
   cursor: pointer;
 }
 
+.employee-form label.stop-date-pay-field {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr);
+  gap: 7px 12px;
+  align-items: end;
+}
+
+.stop-date-pay-field > span {
+  grid-column: 1;
+}
+
+.stop-date-pay-field > input {
+  grid-column: 1;
+}
+
+.stop-date-pay-field > .pay-status-toggle {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
+}
+
 .pay-status-toggle {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
-  margin: 2px 0 0;
+  margin: 0;
   padding: 7px 8px;
   border: 1px solid #cfe0dd;
   border-radius: 7px;
@@ -2063,6 +2085,24 @@ h1 {
   font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .employee-form label.stop-date-pay-field {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+  }
+
+  .stop-date-pay-field > span,
+  .stop-date-pay-field > input,
+  .stop-date-pay-field > .pay-status-toggle {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .pay-status-toggle {
+    flex-wrap: wrap;
+  }
 }
 
 .allowance-entry-panel {
