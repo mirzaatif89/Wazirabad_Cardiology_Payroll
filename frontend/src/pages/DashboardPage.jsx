@@ -3544,7 +3544,7 @@ function MonthRangeExportPage({ type }) {
       const result = isTax ? await getTaxScheduleExport(filters) : await getAllowancesExport(filters);
       setReport(result.data);
       setStatus({ type: result.data.rows.length ? "success" : "error", message: result.data.rows.length ? "Report loaded." : "No records found." });
-      if (excel) {
+      if (excel || filters.outputSelection === "excel") {
         const rows = isTax
           ? result.data.rows.map((row) => ({ "Employee Code": row.employeeCode, Name: row.name, "Tax Amount": row.taxAmount, Month: row.month, Year: row.year }))
           : result.data.rows.map((row) => ({ "Employee Code": row.employeeCode, Name: row.name, "Wage Code": row.wageCode, Description: row.description, Amount: row.amount, "Effective Date": row.effectiveDate }));
@@ -3564,8 +3564,8 @@ function MonthRangeExportPage({ type }) {
         <label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(event) => setFilters((current) => ({ ...current, fromYear: event.target.value }))} /></label>
         <label><span>To Month</span><input type="number" min="1" max="12" value={filters.toMonth} onChange={(event) => setFilters((current) => ({ ...current, toMonth: event.target.value }))} /></label>
         <label><span>To Year</span><input type="number" value={filters.toYear} onChange={(event) => setFilters((current) => ({ ...current, toYear: event.target.value }))} /></label>
-        <fieldset><legend>Output</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Printer</label></fieldset>
-        <div className="report-filter-actions"><button type="button" onClick={() => loadReport(false)}>OK</button><button type="button" onClick={() => loadReport(true)}>Excel Export</button></div>
+        <fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(event) => setFilters((current) => ({ ...current, outputSelection: event.target.value }))} /> Save as Excel</label></fieldset>
+        <div className="report-filter-actions"><button type="button" onClick={() => loadReport(false)}>OK</button><button type="button" onClick={() => loadReport(true)}>Save as Excel</button></div>
       </div>
       {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
       {report ? (
@@ -4681,6 +4681,9 @@ function ArrearBillReportPage({ groupBy }) {
       if (filters.outputSelection === "printer") {
         window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       }
+      if (filters.outputSelection === "excel") {
+        exportCurrentDocumentAfterRender(title);
+      }
     } catch (error) {
       setStatus({ type: "error", message: error.message });
       setReport({ bills: [], grandTotal: 0, loaded: false });
@@ -4727,7 +4730,7 @@ function ArrearBillReportPage({ groupBy }) {
               checked={filters.outputSelection === "screen"}
               onChange={updateFilter}
             />
-            Screen
+            View
           </label>
           <label>
             <input
@@ -4737,7 +4740,17 @@ function ArrearBillReportPage({ groupBy }) {
               checked={filters.outputSelection === "printer"}
               onChange={updateFilter}
             />
-            Printer
+            Print
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="outputSelection"
+              value="excel"
+              checked={filters.outputSelection === "excel"}
+              onChange={updateFilter}
+            />
+            Save as Excel
           </label>
         </fieldset>
         <div className="report-filter-actions">
@@ -5588,6 +5601,9 @@ function ArrearBillPrintPage() {
       if (outputSelection === "printer") {
         window.setTimeout(() => printCurrentDocumentAsExcel("arrear-bill-print"), 150);
       }
+      if (outputSelection === "excel") {
+        exportCurrentDocumentAfterRender("arrear-bill-print");
+      }
     } catch (error) {
       setBill(null);
       setStatus({ type: "error", message: error.message || "Arrear bill not found." });
@@ -5638,7 +5654,7 @@ function ArrearBillPrintPage() {
                 checked={outputSelection === "printer"}
                 onChange={(event) => setOutputSelection(event.target.value)}
               />
-              Printer
+              Print
             </label>
             <label>
               <input
@@ -5647,7 +5663,16 @@ function ArrearBillPrintPage() {
                 checked={outputSelection === "screen"}
                 onChange={(event) => setOutputSelection(event.target.value)}
               />
-              Screen
+              View
+            </label>
+            <label>
+              <input
+                type="radio"
+                value="excel"
+                checked={outputSelection === "excel"}
+                onChange={(event) => setOutputSelection(event.target.value)}
+              />
+              Save as Excel
             </label>
           </fieldset>
           <div className="legacy-print-actions">
@@ -5709,6 +5734,9 @@ function DocumentPrintingPage() {
       if (outputSelection === "printer") {
         window.setTimeout(() => printCurrentDocumentAsExcel("document-printing"), 150);
       }
+      if (outputSelection === "excel") {
+        exportCurrentDocumentAfterRender("document-printing");
+      }
     } catch (error) {
       setDocuments([]);
       const savedNumbers = Array.from(new Set(availableDocuments.map((document) => document.documentNo))).join(", ");
@@ -5753,8 +5781,9 @@ function DocumentPrintingPage() {
         </label>
         <fieldset>
           <legend>Output Selection</legend>
-          <label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(event) => setOutputSelection(event.target.value)} /> Screen</label>
-          <label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(event) => setOutputSelection(event.target.value)} /> Printer</label>
+          <label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(event) => setOutputSelection(event.target.value)} /> View</label>
+          <label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(event) => setOutputSelection(event.target.value)} /> Print</label>
+          <label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(event) => setOutputSelection(event.target.value)} /> Save as Excel</label>
         </fieldset>
         <div className="report-filter-actions">
           <button type="button" onClick={loadDocument} disabled={loading}>{loading ? "Loading..." : "OK"}</button>
@@ -5865,9 +5894,9 @@ function BudgetPositionPage() {
         <label><span>Ending Date</span><input type="date" value={endingDate} onChange={(event) => setEndingDate(event.target.value)} /></label>
         <fieldset>
           <legend>Output Selection</legend>
-          <label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(event) => setOutputSelection(event.target.value)} /> Screen</label>
-          <label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(event) => setOutputSelection(event.target.value)} /> Printer</label>
-          <label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(event) => setOutputSelection(event.target.value)} /> Excel</label>
+          <label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(event) => setOutputSelection(event.target.value)} /> View</label>
+          <label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(event) => setOutputSelection(event.target.value)} /> Print</label>
+          <label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(event) => setOutputSelection(event.target.value)} /> Save as Excel</label>
         </fieldset>
         <div className="report-filter-actions">
           <button type="button" onClick={loadPosition} disabled={loading}>{loading ? "Loading..." : "OK"}</button>
@@ -6148,8 +6177,9 @@ function ProofReportFilter({ title, children, filters, setFilters, onRun, onCanc
         {children}
         <fieldset>
           <legend>Output Selection</legend>
-          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={updateFilter} /> Screen</label>
-          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={updateFilter} /> Printer</label>
+          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={updateFilter} /> View</label>
+          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={updateFilter} /> Print</label>
+          <label><input type="radio" name="outputSelection" value="excel" checked={filters.outputSelection === "excel"} onChange={updateFilter} /> Save as Excel</label>
         </fieldset>
         <div className="report-filter-actions">
           <button type="button" onClick={onRun} disabled={loading}>{loading ? "Loading..." : "OK"}</button>
@@ -6185,6 +6215,9 @@ function ProofReportShell({ title, endpoint, children, extraDefaults = {}, rende
       setReport(result.data);
       if (filters.outputSelection === "printer") {
         window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
+      }
+      if (filters.outputSelection === "excel") {
+        exportCurrentDocumentAfterRender(title);
       }
     } catch (error) {
       setReport(null);
@@ -6353,9 +6386,9 @@ function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, a
         <label><span>Payment Year</span><input type="number" name="year" value={filters.year} onChange={update} /></label>
         <fieldset>
           <legend>Output Selection</legend>
-          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={update} /> Screen</label>
-          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={update} /> Printer</label>
-          {allowExcel ? <label><input type="radio" name="outputSelection" value="excel" checked={filters.outputSelection === "excel"} onChange={update} /> Excel</label> : null}
+          <label><input type="radio" name="outputSelection" value="screen" checked={filters.outputSelection === "screen"} onChange={update} /> View</label>
+          <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={update} /> Print</label>
+          <label><input type="radio" name="outputSelection" value="excel" checked={filters.outputSelection === "excel"} onChange={update} /> Save as Excel</label>
         </fieldset>
         <div className="report-filter-actions"><button type="button" onClick={onRun} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={onCancel}>Cancel</button></div>
       </div>
@@ -6457,6 +6490,10 @@ function printCurrentDocumentAsExcel(filename) {
   window.print();
 }
 
+function exportCurrentDocumentAfterRender(filename) {
+  window.setTimeout(() => exportPrintableDocumentToExcel(filename), 150);
+}
+
 function PayrollReportShell({ title, endpoint, children, allowExcel = false, simple = false, extraDefaults = {}, exportRows }) {
   const [filters, setFilters] = useState(payrollDefaultFilters(extraDefaults));
   const [report, setReport] = useState(null);
@@ -6471,6 +6508,7 @@ function PayrollReportShell({ title, endpoint, children, allowExcel = false, sim
       setReport(result.data);
       if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
       if (filters.outputSelection === "excel" && exportRows) exportRowsToExcel(exportRows(result.data), `${endpoint}-${filters.month}-${filters.year}.xlsx`);
+      if (filters.outputSelection === "excel" && !exportRows) exportCurrentDocumentAfterRender(title);
     } catch (error) {
       setReport(null);
       setStatus({ type: "error", message: error.message });
@@ -7062,7 +7100,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
         </div>
         <div className="title-actions no-print">
           {result ? <button className="refresh-button" type="button" onClick={() => printCurrentDocumentAsExcel(title)}>Print</button> : null}
-          {result ? <button type="button" onClick={exportResult}>Export Excel</button> : null}
+          {result ? <button type="button" onClick={exportResult}>Save as Excel</button> : null}
         </div>
       </div>
       <div className="salary-period-form no-print">
@@ -7144,7 +7182,7 @@ function BudgetRequirementPage() {
     }
   };
 
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Budget Requirement</h2></div></div><div className="report-filter-panel no-print"><label><span>Ending Date</span><input type="date" value={endingDate} onChange={(e) => setEndingDate(e.target.value)} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(e) => setOutputSelection(e.target.value)} /> Screen</label><label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(e) => setOutputSelection(e.target.value)} /> Printer</label><label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(e) => setOutputSelection(e.target.value)} /> Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => { setReport(null); setEndingDate(today); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Budget Requirement" filterSummary={`Ending Date: ${endingDate}`} /><table className="print-report-table"><thead><tr><th>Wage Code</th><th>Description</th><th>Projected Total</th></tr></thead><tbody>{(report.rows || []).map((row) => <tr key={row.wageCode}><td>{row.wageCode}</td><td>{row.description}</td><td className="amount-cell">{formatCurrency(row.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Budget Requirement</h2></div></div><div className="report-filter-panel no-print"><label><span>Ending Date</span><input type="date" value={endingDate} onChange={(e) => setEndingDate(e.target.value)} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={outputSelection === "screen"} onChange={(e) => setOutputSelection(e.target.value)} /> View</label><label><input type="radio" value="printer" checked={outputSelection === "printer"} onChange={(e) => setOutputSelection(e.target.value)} /> Print</label><label><input type="radio" value="excel" checked={outputSelection === "excel"} onChange={(e) => setOutputSelection(e.target.value)} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => { setReport(null); setEndingDate(today); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Budget Requirement" filterSummary={`Ending Date: ${endingDate}`} /><table className="print-report-table"><thead><tr><th>Wage Code</th><th>Description</th><th>Projected Total</th></tr></thead><tbody>{(report.rows || []).map((row) => <tr key={row.wageCode}><td>{row.wageCode}</td><td>{row.description}</td><td className="amount-cell">{formatCurrency(row.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
 }
 
 function PaySlipsPage() {
@@ -7169,6 +7207,7 @@ function SinglePaySlipPage() {
       const result = await getSinglePayrollPayslip(employeeCode, filters);
       setSlip(result.data);
       if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slip"), 150);
+      if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("single-pay-slip");
     } catch (error) {
       setSlip(null);
       setStatus({ type: "error", message: error.message });
@@ -7177,7 +7216,7 @@ function SinglePaySlipPage() {
     }
   };
 
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} /></label><label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Printer</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{slip ? <PayslipView slips={[slip]} filters={filters} /> : null}</section>;
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} /></label><label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{slip ? <PayslipView slips={[slip]} filters={filters} /> : null}</section>;
 }
 
 function PayDedSchedulePage({ title, defaultCode = "", defaultCodeKey = "", allowExcel = false }) {
@@ -7239,9 +7278,10 @@ function SinglePaySlipsForMonthsPage() {
       const result = await getReportModule("payslips-for-months", filters);
       setReport(result.data);
       if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slips-for-months"), 150);
+      if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("single-pay-slips-for-months");
     } catch (error) { setStatus({ type: "error", message: error.message }); }
   };
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Single Pay Slips For Months</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Screen</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Printer</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <PayslipView slips={report.slips || []} filters={{ month: `${filters.fromMonth}-${filters.toMonth}`, year: filters.year }} /> : null}</section>;
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Single Pay Slips For Months</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <PayslipView slips={report.slips || []} filters={{ month: `${filters.fromMonth}-${filters.toMonth}`, year: filters.year }} /> : null}</section>;
 }
 
 function DesignationWiseListPage() {
@@ -7251,6 +7291,7 @@ function DesignationWiseListPage() {
     const result = await getReportModule("designation-wise-list", filters);
     setReport(result.data);
     if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("designation-wise-list"), 150);
+    if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("designation-wise-list");
   };
   return <section className="employee-entry-panel arrear-report-panel"><PayrollFilter title="Designation Wise List" filters={filters} setFilters={setFilters} onRun={run} onCancel={() => setReport(null)} loading={false} simple /><div className="report-filter-panel no-print"><label><span>Designation Code</span><input value={filters.designationCode} onChange={(e) => setFilters((c) => ({ ...c, designationCode: e.target.value }))} /></label></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Designation Wise List" filterSummary={`${filters.month}/${filters.year}`} />{(report.designations || []).map((g) => <section className="print-employee-section" key={g.designation}><div className="print-employee-head"><strong>{g.designation}</strong></div><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th><th>Dept</th><th>Net Pay</th></tr></thead><tbody>{g.rows.map((r) => <tr key={r.employeeCode}><td>{r.employeeCode}</td><td>{r.name}</td><td>{r.department}</td><td className="amount-cell">{formatCurrency(r.netPay)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Subtotal</span><strong>PKR {formatCurrency(g.subtotal)}</strong></div></section>)}<div className="print-grand-total-row"><span>Grand Total</span><strong>PKR {formatCurrency(report.grandTotal)}</strong></div></div> : null}</section>;
 }
@@ -7263,6 +7304,7 @@ function AnnualIncomeTaxSchedulePage() {
     const result = await getReportModule("annual-income-tax-schedule", filters);
     setReport(result.data);
     if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("annual-income-tax-schedule"), 150);
+    if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("annual-income-tax-schedule");
   };
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Annual Income Tax Schedule</h2></div></div><div className="report-filter-panel no-print"><label><span>Report For</span><select value={filters.reportFor} onChange={(e) => setFilters((c) => ({ ...c, reportFor: e.target.value }))}><option>All</option><option>Regular</option><option>Contract</option></select></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>To Year</span><input type="number" value={filters.toYear} onChange={(e) => setFilters((c) => ({ ...c, toYear: e.target.value }))} /></label><label><span>Code</span><input value={filters.code} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Annual Income Tax Schedule" filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}`} /><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Annual Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.annualTotal)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(report.totals[m])}</td>)}<td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
 }
@@ -7275,6 +7317,7 @@ function PostAuditPage() {
     const result = await getReportModule("post-audit", filters);
     setReport(result.data);
     if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("post-audit"), 150);
+    if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("post-audit");
   };
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Post Audit</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Post Audit" filterSummary={report.employee ? `${report.employee.employeeCode} - ${report.employee.name}` : filters.employeeCode} /><table className="print-report-table"><thead><tr><th>Code</th><th>Description</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.wageCode}><td>{r.wageCode}</td><td>{r.description}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.total)}</td></tr>)}</tbody></table></div> : null}</section>;
 }
@@ -7291,6 +7334,7 @@ function ActiveInactiveReportPage({ monthwise = false }) {
       const result = await getReportModule(endpoint, filters);
       setReport(result.data);
       if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
+      if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender(title);
     } catch (error) {
       notifyError(error.message);
     } finally {
