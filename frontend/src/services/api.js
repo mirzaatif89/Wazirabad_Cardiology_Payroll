@@ -562,6 +562,215 @@ export async function deleteWageCode(code) {
   return data;
 }
 
+export async function getFiscalYears() {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Fiscal year list failed.");
+  }
+
+  return data.data;
+}
+
+export async function getActiveFiscalYear() {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years/active`);
+  return readJsonResponse(response, "Active fiscal year failed.");
+}
+
+export async function createFiscalYear(fiscalYear) {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(fiscalYear)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Fiscal year save failed.");
+  }
+
+  return data;
+}
+
+export async function updateFiscalYear(id, fiscalYear) {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(fiscalYear)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Fiscal year update failed.");
+  }
+
+  return data;
+}
+
+export async function deleteFiscalYear(id) {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years/${id}`, {
+    method: "DELETE"
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Fiscal year delete failed.");
+  }
+
+  return data;
+}
+
+export async function activateFiscalYear(id) {
+  const response = await fetch(`${API_BASE_URL}/fiscal-years/${id}/active`, {
+    method: "PATCH"
+  });
+  return readJsonResponse(response, "Fiscal year activate failed.");
+}
+
+export async function getTaxPolicies(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.fiscalYearId) {
+    params.set("fiscal_year_id", filters.fiscalYearId);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/tax-policies?${params.toString()}`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax policy list failed.");
+  }
+
+  return data.data;
+}
+
+export async function getActiveTaxPolicy(fiscalYearId) {
+  const params = new URLSearchParams();
+  if (fiscalYearId) {
+    params.set("fiscal_year_id", fiscalYearId);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/tax-policies/active?${params.toString()}`);
+  return readJsonResponse(response, "Active tax policy failed.");
+}
+
+export async function createTaxPolicy(policy) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(policy)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax policy save failed.");
+  }
+
+  return data;
+}
+
+export async function updateTaxPolicy(id, policy) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(policy)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax policy update failed.");
+  }
+
+  return data;
+}
+
+export async function deleteTaxPolicy(id) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${id}`, {
+    method: "DELETE"
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax policy delete failed.");
+  }
+
+  return data;
+}
+
+export async function activateTaxPolicy(id) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${id}/active`, {
+    method: "PATCH"
+  });
+  return readJsonResponse(response, "Tax policy activate failed.");
+}
+
+export async function getTaxSlabs(policyId) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${policyId}/slabs`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax slab list failed.");
+  }
+
+  return data.data;
+}
+
+export async function createTaxSlab(policyId, slab) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${policyId}/slabs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(slab)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax slab save failed.");
+  }
+
+  return data;
+}
+
+export async function updateTaxSlab(policyId, slabId, slab) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${policyId}/slabs/${slabId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(slab)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax slab update failed.");
+  }
+
+  return data;
+}
+
+export async function deleteTaxSlab(policyId, slabId) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/${policyId}/slabs/${slabId}`, {
+    method: "DELETE"
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax slab delete failed.");
+  }
+
+  return data;
+}
+
 export async function getSpecialPay(employeeCode, filters = {}) {
   const params = new URLSearchParams();
   params.set("month", filters.month || "");
@@ -933,6 +1142,21 @@ export async function processPayroll(payload) {
     })
   });
   return readJsonResponse(response, "Payroll processing failed.");
+}
+
+export async function previewPayroll(payload) {
+  const response = await fetch(`${API_BASE_URL}/payroll/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      payment_month: Number(payload.month),
+      payment_year: Number(payload.year),
+      dept_code: payload.deptCode || "999",
+      gaz_ng: payload.gazNg || "A",
+      report_for: payload.reportFor || "All"
+    })
+  });
+  return readJsonResponse(response, "Payroll preview failed.");
 }
 
 export async function getPayrollCurrentPeriod() {

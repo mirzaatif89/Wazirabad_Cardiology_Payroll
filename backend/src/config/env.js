@@ -23,8 +23,11 @@ export const env = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER || ""
   },
   reportScheduleDefaults: {
-    incomeTax: process.env.REPORT_INCOME_TAX_WAGE_CODE || "G12713",
+    incomeTax: process.env.REPORT_INCOME_TAX_WAGE_CODE || "6002",
     gpFund: process.env.REPORT_GP_FUND_WAGE_CODE || "G06103",
     pghsf: process.env.REPORT_PGHSF_WAGE_CODE || "G11278"
+  },
+  payrollLedgerDefaults: {
+    salaryPayableAccountCode: process.env.PAYROLL_SALARY_PAYABLE_ACCOUNT_CODE || "L03001"
   }
 };

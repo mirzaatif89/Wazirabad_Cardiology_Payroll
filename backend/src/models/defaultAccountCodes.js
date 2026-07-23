@@ -59,5 +59,6 @@ export const DEFAULT_ACCOUNT_CODES = [
   { code: "G06411", name: "GROUP INSURANCE" },
   { code: "G11278", name: "PGHSF" },
   { code: "G12713", name: "INCOME TAX" },
-  { code: "G6103", name: "G.P. FUND" }
+  { code: "G6103", name: "G.P. FUND" },
+  { code: "L03001", name: "SALARY PAYABLE" }
 ];

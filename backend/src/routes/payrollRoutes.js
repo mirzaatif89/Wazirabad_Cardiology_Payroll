@@ -11,6 +11,7 @@ import {
   nonBankSalary,
   paymentList,
   payslips,
+  previewPayrollRun,
   processPayrollRun,
   reopenRun,
   scaleAuditRegister,
@@ -21,6 +22,7 @@ const router = Router();
 
 router.get("/current-period", currentPayrollPeriod);
 router.get("/employee-count", employeeCount);
+router.post("/preview", previewPayrollRun);
 router.post("/process", processPayrollRun);
 router.get("/runs", listPayrollRuns);
 router.get("/runs/:id", getRun);

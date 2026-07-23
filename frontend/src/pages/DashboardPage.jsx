@@ -67,7 +67,6 @@ import {
   getProofReport,
   getPayrollBudgetRequirement,
   getPayrollCurrentPeriod,
-  getPayrollEmployeeCount,
   getPayrollReport,
   getPayrollRun,
   getPayrollRuns,
@@ -83,7 +82,19 @@ import {
   previewAnnualIncrement,
   previewFixedAllowance,
   previewPercentAllowance,
+  previewPayroll,
   processPayroll,
+  activateFiscalYear,
+  createFiscalYear,
+  deleteFiscalYear,
+  getFiscalYears,
+  activateTaxPolicy,
+  createTaxPolicy,
+  createTaxSlab,
+  deleteTaxPolicy,
+  deleteTaxSlab,
+  getTaxPolicies,
+  getTaxSlabs,
   reopenPayrollRun,
   reopenArrearBill,
   reopenBudgetTransaction,
@@ -100,6 +111,9 @@ import {
   updateDepartment,
   updateDesignation,
   updateEmployee,
+  updateFiscalYear,
+  updateTaxPolicy,
+  updateTaxSlab,
   updateWageCode
 } from "../services/api.js";
 
@@ -289,6 +303,42 @@ function filterEmployeeCodeLookupRows(rows, search) {
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function getActiveFiscalYearRecord() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.PAYROLL_ACTIVE_FISCAL_YEAR || null;
+}
+
+function getActiveFiscalYearLabel() {
+  const fiscalYear = getActiveFiscalYearRecord();
+  return fiscalYear?.name || "Not configured";
+}
+
+function getActiveFiscalYearRange() {
+  const fiscalYear = getActiveFiscalYearRecord();
+
+  if (!fiscalYear?.startDate || !fiscalYear?.endDate) {
+    return null;
+  }
+
+  const startDate = new Date(fiscalYear.startDate);
+  const endDate = new Date(fiscalYear.endDate);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  return {
+    name: fiscalYear.name || getActiveFiscalYearLabel(),
+    startMonth: String(startDate.getMonth() + 1),
+    startYear: String(startDate.getFullYear()),
+    endMonth: String(endDate.getMonth() + 1),
+    endYear: String(endDate.getFullYear())
+  };
 }
 
 function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
@@ -2652,6 +2702,856 @@ function WageCodeMaster() {
             {!sortedWageCodes.length ? (
               <tr>
                 <td colSpan="5">No wage codes found.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function FiscalYearManagement() {
+  const emptyFiscalYearForm = { name: "", startDate: "", endDate: "" };
+  const [fiscalYears, setFiscalYears] = useState([]);
+  const [form, setForm] = useState(emptyFiscalYearForm);
+  const [editingFiscalYear, setEditingFiscalYear] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "Loading fiscal years..." });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const syncActiveFiscalYear = (records) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const activeRecord = records.find((record) => Number(record.isActive) === 1) || records[0] || null;
+    window.dispatchEvent(new CustomEvent("payroll-fiscal-year-updated", { detail: activeRecord }));
+  };
+
+  const loadFiscalYears = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "Loading fiscal years..." });
+
+    try {
+      const records = await getFiscalYears();
+      setFiscalYears(records);
+      setStatus({
+        type: "success",
+        message: records.length ? `${records.length} fiscal year(s) found.` : "No fiscal years found."
+      });
+      syncActiveFiscalYear(records);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateField = (event) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setForm(emptyFiscalYearForm);
+    setEditingFiscalYear(null);
+  };
+
+  const saveFiscalYear = async (event) => {
+    event.preventDefault();
+
+    const cleanName = form.name.trim().toLowerCase();
+    const duplicateFiscalYear = fiscalYears.find(
+      (fiscalYear) =>
+        String(fiscalYear.name || "").trim().toLowerCase() === cleanName &&
+        fiscalYear.id !== editingFiscalYear?.id
+    );
+
+    if (duplicateFiscalYear) {
+      setStatus({ type: "error", message: "Duplicate entry of fiscal year." });
+      return;
+    }
+
+    if (form.startDate && form.endDate && form.startDate > form.endDate) {
+      setStatus({ type: "error", message: "Fiscal year start date cannot be after the end date." });
+      return;
+    }
+
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const payload = {
+        name: form.name.trim(),
+        startDate: form.startDate,
+        endDate: form.endDate
+      };
+
+      const result = editingFiscalYear
+        ? await updateFiscalYear(editingFiscalYear.id, payload)
+        : await createFiscalYear(payload);
+
+      setStatus({ type: "success", message: result.message });
+      resetForm();
+      await loadFiscalYears();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (fiscalYear) => {
+    setEditingFiscalYear(fiscalYear);
+    setForm({
+      name: fiscalYear.name || "",
+      startDate: fiscalYear.startDate || "",
+      endDate: fiscalYear.endDate || ""
+    });
+    setStatus({ type: "", message: "" });
+  };
+
+  const removeFiscalYear = async (fiscalYear) => {
+    const shouldDelete = window.confirm(`Delete fiscal year ${fiscalYear.name}?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await deleteFiscalYear(fiscalYear.id);
+      setStatus({ type: "success", message: result.message });
+      if (editingFiscalYear?.id === fiscalYear.id) {
+        resetForm();
+      }
+      await loadFiscalYears();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const setActive = async (fiscalYear) => {
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await activateFiscalYear(fiscalYear.id);
+      setStatus({ type: "success", message: result.message });
+      await loadFiscalYears();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  useEffect(() => {
+    loadFiscalYears();
+  }, []);
+
+  return (
+    <section className="employee-entry-panel" aria-label="Fiscal year settings">
+      <div className="form-title-row">
+        <div>
+          <p>Management</p>
+          <h2>Fiscal Year Settings</h2>
+        </div>
+        <span>{editingFiscalYear ? "Editing year" : "New year"}</span>
+      </div>
+
+      <form className="department-code-form" onSubmit={saveFiscalYear}>
+        <label>
+          <span>Fiscal Year Name</span>
+          <input
+            name="name"
+            type="text"
+            value={form.name}
+            onChange={updateField}
+            placeholder="2026-2027"
+            required
+          />
+        </label>
+        <label>
+          <span>Start Date</span>
+          <input
+            name="startDate"
+            type="date"
+            value={form.startDate}
+            onChange={updateField}
+            required
+          />
+        </label>
+        <label>
+          <span>End Date</span>
+          <input
+            name="endDate"
+            type="date"
+            value={form.endDate}
+            onChange={updateField}
+            required
+          />
+        </label>
+        <div className="department-form-actions">
+          <button type="button" onClick={resetForm}>Clear</button>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : editingFiscalYear ? "Update Fiscal Year" : "Save Fiscal Year"}
+          </button>
+        </div>
+      </form>
+
+      {status.message ? (
+        <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
+      ) : null}
+
+      <div className="table-wrap">
+        <table className="department-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Start Date</th>
+              <th>End Date</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fiscalYears.map((fiscalYear) => (
+              <tr key={fiscalYear.id}>
+                <td>{fiscalYear.name}</td>
+                <td>{fiscalYear.startDate}</td>
+                <td>{fiscalYear.endDate}</td>
+                <td>
+                  <span className={`allowance-status ${Number(fiscalYear.isActive) === 1 ? "active" : "expired"}`}>
+                    {Number(fiscalYear.isActive) === 1 ? "Active" : "Inactive"}
+                  </span>
+                </td>
+                <td>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for fiscal year ${fiscalYear.name}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEdit(fiscalYear);
+                      }
+
+                      if (event.target.value === "activate") {
+                        setActive(fiscalYear);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeFiscalYear(fiscalYear);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="activate">Set Active</option>
+                    <option value="delete">Delete</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+
+            {!fiscalYears.length && !loading ? (
+              <tr>
+                <td colSpan="5">No fiscal years found.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TaxSlabManagement() {
+  const currentFiscalYear = getActiveFiscalYearRecord();
+  const [fiscalYears, setFiscalYears] = useState([]);
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState(String(currentFiscalYear?.id || ""));
+  const [policies, setPolicies] = useState([]);
+  const [selectedPolicyId, setSelectedPolicyId] = useState("");
+  const [policyForm, setPolicyForm] = useState({
+    fiscalYearId: String(currentFiscalYear?.id || ""),
+    name: "",
+    basis: "annual",
+    notes: "",
+    isActive: true
+  });
+  const [editingPolicy, setEditingPolicy] = useState(null);
+  const [slabs, setSlabs] = useState([]);
+  const [slabForm, setSlabForm] = useState({
+    srNo: "",
+    fromIncome: "",
+    toIncome: "",
+    rate: "",
+    fixedTax: ""
+  });
+  const [editingSlab, setEditingSlab] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "Loading tax slabs..." });
+  const [loading, setLoading] = useState(true);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [savingSlab, setSavingSlab] = useState(false);
+
+  const loadFiscalYears = async () => {
+    const records = await getFiscalYears();
+    setFiscalYears(records);
+
+    if (!selectedFiscalYearId && records.length) {
+      const activeFiscalYear = records.find((record) => Number(record.isActive) === 1) || records[0];
+      setSelectedFiscalYearId(String(activeFiscalYear.id));
+    }
+  };
+
+  const loadPolicies = async (fiscalYearId) => {
+    if (!fiscalYearId) {
+      setPolicies([]);
+      setSelectedPolicyId("");
+      setSlabs([]);
+      return;
+    }
+
+    const records = await getTaxPolicies({ fiscalYearId });
+    setPolicies(records);
+
+    const nextPolicy =
+      records.find((record) => Number(record.isActive) === 1) ||
+      records.find((record) => String(record.id) === String(selectedPolicyId)) ||
+      records[0] ||
+      null;
+
+    setSelectedPolicyId(nextPolicy ? String(nextPolicy.id) : "");
+    if (nextPolicy) {
+      const slabRows = await getTaxSlabs(nextPolicy.id);
+      setSlabs(slabRows);
+    } else {
+      setSlabs([]);
+    }
+  };
+
+  const loadSelectedPolicySlabs = async (policyId) => {
+    if (!policyId) {
+      setSlabs([]);
+      return;
+    }
+
+    const slabRows = await getTaxSlabs(policyId);
+    setSlabs(slabRows);
+  };
+
+  const refreshAll = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "Loading tax slabs..." });
+
+    try {
+      await loadFiscalYears();
+      const fiscalYearId = selectedFiscalYearId || String(currentFiscalYear?.id || "");
+      await loadPolicies(fiscalYearId);
+      setStatus({ type: "success", message: "Tax policies loaded." });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedFiscalYearId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncPolicies() {
+      setLoading(true);
+      try {
+        const records = await getTaxPolicies({ fiscalYearId: selectedFiscalYearId });
+        if (cancelled) return;
+
+        setPolicies(records);
+
+        const nextPolicy =
+          records.find((record) => Number(record.isActive) === 1) ||
+          records[0] ||
+          null;
+
+        setSelectedPolicyId(nextPolicy ? String(nextPolicy.id) : "");
+        setSlabs(nextPolicy ? await getTaxSlabs(nextPolicy.id) : []);
+      } catch (error) {
+        if (!cancelled) {
+          setStatus({ type: "error", message: error.message });
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    syncPolicies();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFiscalYearId]);
+
+  useEffect(() => {
+    if (!selectedPolicyId) {
+      setSlabs([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    loadSelectedPolicySlabs(selectedPolicyId).catch((error) => {
+      if (!cancelled) {
+        setStatus({ type: "error", message: error.message });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPolicyId]);
+
+  const updatePolicyField = (event) => {
+    const { name, value, type, checked } = event.target;
+    setPolicyForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+  };
+
+  const updateSlabField = (event) => {
+    const { name, value } = event.target;
+    setSlabForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const resetPolicyForm = () => {
+    setPolicyForm({
+      fiscalYearId: selectedFiscalYearId || String(currentFiscalYear?.id || ""),
+      name: "",
+      basis: "annual",
+      notes: "",
+      isActive: true
+    });
+    setEditingPolicy(null);
+  };
+
+  const resetSlabForm = () => {
+    setSlabForm({ srNo: "", fromIncome: "", toIncome: "", rate: "", fixedTax: "" });
+    setEditingSlab(null);
+  };
+
+  const savePolicy = async (event) => {
+    event.preventDefault();
+
+    const fiscalYearId = String(policyForm.fiscalYearId || selectedFiscalYearId || "").trim();
+    if (!fiscalYearId) {
+      setStatus({ type: "error", message: "Fiscal year is required." });
+      return;
+    }
+
+    if (!policyForm.name.trim()) {
+      setStatus({ type: "error", message: "Tax policy name is required." });
+      return;
+    }
+
+    setSavingPolicy(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const payload = {
+        fiscalYearId,
+        name: policyForm.name.trim(),
+        basis: policyForm.basis,
+        notes: policyForm.notes.trim(),
+        isActive: policyForm.isActive
+      };
+
+      const result = editingPolicy
+        ? await updateTaxPolicy(editingPolicy.id, payload)
+        : await createTaxPolicy(payload);
+
+      setStatus({ type: "success", message: result.message });
+      resetPolicyForm();
+      await loadPolicies(fiscalYearId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const startEditPolicy = (policy) => {
+    setEditingPolicy(policy);
+    setPolicyForm({
+      fiscalYearId: String(policy.fiscalYearId || selectedFiscalYearId || ""),
+      name: policy.name || "",
+      basis: policy.basis || "annual",
+      notes: policy.notes || "",
+      isActive: Boolean(policy.isActive)
+    });
+    setSelectedFiscalYearId(String(policy.fiscalYearId || selectedFiscalYearId || ""));
+    setStatus({ type: "", message: "" });
+  };
+
+  const setActivePolicy = async (policy) => {
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await activateTaxPolicy(policy.id);
+      setStatus({ type: "success", message: result.message });
+      await loadPolicies(selectedFiscalYearId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const removePolicy = async (policy) => {
+    if (!window.confirm(`Delete tax policy ${policy.name}?`)) {
+      return;
+    }
+
+    try {
+      const result = await deleteTaxPolicy(policy.id);
+      setStatus({ type: "success", message: result.message });
+      if (editingPolicy?.id === policy.id) {
+        resetPolicyForm();
+      }
+      await loadPolicies(selectedFiscalYearId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const saveSlab = async (event) => {
+    event.preventDefault();
+
+    if (!selectedPolicyId) {
+      setStatus({ type: "error", message: "Select a tax policy first." });
+      return;
+    }
+
+    if (slabForm.fromIncome === "" || slabForm.rate === "") {
+      setStatus({ type: "error", message: "From income and tax rate are required." });
+      return;
+    }
+
+    setSavingSlab(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const payload = {
+        srNo: slabForm.srNo,
+        fromIncome: slabForm.fromIncome,
+        toIncome: slabForm.toIncome,
+        rate: slabForm.rate,
+        fixedTax: slabForm.fixedTax
+      };
+
+      const result = editingSlab
+        ? await updateTaxSlab(selectedPolicyId, editingSlab.id, payload)
+        : await createTaxSlab(selectedPolicyId, payload);
+
+      setStatus({ type: "success", message: result.message });
+      resetSlabForm();
+      await loadSelectedPolicySlabs(selectedPolicyId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSavingSlab(false);
+    }
+  };
+
+  const startEditSlab = (slab) => {
+    setEditingSlab(slab);
+    setSlabForm({
+      srNo: slab.srNo || "",
+      fromIncome: slab.fromIncome ?? "",
+      toIncome: slab.toIncome ?? "",
+      rate: slab.rate ?? "",
+      fixedTax: slab.fixedTax ?? ""
+    });
+    setStatus({ type: "", message: "" });
+  };
+
+  const removeSlab = async (slab) => {
+    if (!window.confirm(`Delete tax slab ${slab.srNo}?`)) {
+      return;
+    }
+
+    try {
+      const result = await deleteTaxSlab(selectedPolicyId, slab.id);
+      setStatus({ type: "success", message: result.message });
+      if (editingSlab?.id === slab.id) {
+        resetSlabForm();
+      }
+      await loadSelectedPolicySlabs(selectedPolicyId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  return (
+    <section className="employee-entry-panel" aria-label="Tax slab settings">
+      <div className="form-title-row">
+        <div>
+          <p>Management</p>
+          <h2>Tax Slab Settings</h2>
+        </div>
+        <span>{currentFiscalYear?.name || "Fiscal year required"}</span>
+      </div>
+
+      <div className="report-filter-panel proof-filter-panel no-print">
+        <label>
+          <span>Fiscal Year</span>
+          <select value={selectedFiscalYearId} onChange={(event) => setSelectedFiscalYearId(event.target.value)}>
+            <option value="">Select fiscal year</option>
+            {fiscalYears.map((fiscalYear) => (
+              <option key={fiscalYear.id} value={fiscalYear.id}>
+                {fiscalYear.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <form className="department-code-form" onSubmit={savePolicy}>
+        <label>
+          <span>Policy Name</span>
+          <input
+            name="name"
+            type="text"
+            value={policyForm.name}
+            onChange={updatePolicyField}
+            placeholder="Pakistan Tax 2026"
+            required
+          />
+        </label>
+        <label>
+          <span>Basis</span>
+          <select name="basis" value={policyForm.basis} onChange={updatePolicyField}>
+            <option value="annual">Annual</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+        <label>
+          <span>Notes</span>
+          <input
+            name="notes"
+            type="text"
+            value={policyForm.notes}
+            onChange={updatePolicyField}
+            placeholder="Optional notes"
+          />
+        </label>
+        <label className="reset-confirm-row">
+          <input
+            name="isActive"
+            type="checkbox"
+            checked={policyForm.isActive}
+            onChange={updatePolicyField}
+          />
+          <span>Set as active policy for this fiscal year</span>
+        </label>
+        <div className="department-form-actions">
+          <button type="button" onClick={resetPolicyForm}>Clear</button>
+          <button type="submit" disabled={savingPolicy}>
+            {savingPolicy ? "Saving..." : editingPolicy ? "Update Policy" : "Save Policy"}
+          </button>
+        </div>
+      </form>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+
+      <div className="table-wrap">
+        <table className="department-table">
+          <thead>
+            <tr>
+              <th>Policy</th>
+              <th>Fiscal Year</th>
+              <th>Basis</th>
+              <th>Status</th>
+              <th>Slabs</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {policies.map((policy) => (
+              <tr key={policy.id}>
+                <td>{policy.name}</td>
+                <td>{policy.fiscalYearName}</td>
+                <td>{policy.basis}</td>
+                <td>
+                  <span className={`allowance-status ${Number(policy.isActive) === 1 ? "active" : "expired"}`}>
+                    {Number(policy.isActive) === 1 ? "Active" : "Inactive"}
+                  </span>
+                </td>
+                <td>{policy.slabCount || 0}</td>
+                <td>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for tax policy ${policy.name}`}
+                    onChange={(event) => {
+                      if (event.target.value === "open") {
+                        setSelectedPolicyId(String(policy.id));
+                      }
+
+                      if (event.target.value === "edit") {
+                        startEditPolicy(policy);
+                      }
+
+                      if (event.target.value === "activate") {
+                        setActivePolicy(policy);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removePolicy(policy);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="open">Open Slabs</option>
+                    <option value="edit">Edit</option>
+                    <option value="activate">Set Active</option>
+                    <option value="delete">Delete</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {!policies.length && !loading ? (
+              <tr>
+                <td colSpan="6">No tax policies found.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="form-title-row" style={{ marginTop: "2rem" }}>
+        <div>
+          <p>Tax Slabs</p>
+          <h2>{selectedPolicyId ? "Slab Maintenance" : "Select a policy first"}</h2>
+        </div>
+        <span>{slabs.length} slab(s)</span>
+      </div>
+
+      <form className="department-code-form" onSubmit={saveSlab}>
+        <label>
+          <span>Sr No</span>
+          <input
+            name="srNo"
+            type="number"
+            value={slabForm.srNo}
+            onChange={updateSlabField}
+            placeholder="Auto"
+          />
+        </label>
+        <label>
+          <span>From Income</span>
+          <input
+            name="fromIncome"
+            type="number"
+            step="0.01"
+            value={slabForm.fromIncome}
+            onChange={updateSlabField}
+            required
+          />
+        </label>
+        <label>
+          <span>To Income</span>
+          <input
+            name="toIncome"
+            type="number"
+            step="0.01"
+            value={slabForm.toIncome}
+            onChange={updateSlabField}
+            placeholder="Leave blank for last slab"
+          />
+        </label>
+        <label>
+          <span>Rate %</span>
+          <input
+            name="rate"
+            type="number"
+            step="0.01"
+            value={slabForm.rate}
+            onChange={updateSlabField}
+            required
+          />
+        </label>
+        <label>
+          <span>Fixed Tax</span>
+          <input
+            name="fixedTax"
+            type="number"
+            step="0.01"
+            value={slabForm.fixedTax}
+            onChange={updateSlabField}
+            placeholder="Optional fixed amount"
+          />
+        </label>
+        <div className="department-form-actions">
+          <button type="button" onClick={resetSlabForm}>Clear</button>
+          <button type="submit" disabled={savingSlab || !selectedPolicyId}>
+            {savingSlab ? "Saving..." : editingSlab ? "Update Slab" : "Save Slab"}
+          </button>
+        </div>
+      </form>
+
+      <div className="table-wrap">
+        <table className="department-table">
+          <thead>
+            <tr>
+              <th>Sr</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Rate %</th>
+              <th>Fixed Tax</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {slabs.map((slab) => (
+              <tr key={slab.id}>
+                <td>{slab.srNo}</td>
+                <td>{slab.fromIncome}</td>
+                <td>{slab.toIncome ?? "-"}</td>
+                <td>{slab.rate}</td>
+                <td>{slab.fixedTax}</td>
+                <td>
+                  <select
+                    className="account-action-select"
+                    value=""
+                    aria-label={`Actions for tax slab ${slab.srNo}`}
+                    onChange={(event) => {
+                      if (event.target.value === "edit") {
+                        startEditSlab(slab);
+                      }
+
+                      if (event.target.value === "delete") {
+                        removeSlab(slab);
+                      }
+                    }}
+                  >
+                    <option value="">Action</option>
+                    <option value="edit">Edit</option>
+                    <option value="delete">Delete</option>
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {!slabs.length && selectedPolicyId && !loading ? (
+              <tr>
+                <td colSpan="6">No slabs found for this policy.</td>
+              </tr>
+            ) : null}
+            {!selectedPolicyId ? (
+              <tr>
+                <td colSpan="6">Select a tax policy to manage its slabs.</td>
               </tr>
             ) : null}
           </tbody>
@@ -6365,6 +7265,28 @@ function payrollDefaultFilters(extra = {}) {
   };
 }
 
+function getPayrollFiscalYearRecord() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.PAYROLL_ACTIVE_FISCAL_YEAR || null;
+}
+
+function derivePayrollPaymentYear(monthValue, fiscalYear) {
+  const month = Number(monthValue || 0);
+
+  if (!fiscalYear?.startDate || !fiscalYear?.endDate || !month) {
+    return String(new Date().getFullYear());
+  }
+
+  const startYear = new Date(fiscalYear.startDate).getFullYear();
+  const endYear = new Date(fiscalYear.endDate).getFullYear();
+  const fiscalStartMonth = new Date(fiscalYear.startDate).getMonth() + 1;
+
+  return String(month >= fiscalStartMonth ? startYear : endYear);
+}
+
 function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, allowExcel = false, simple = false }) {
   const update = (event) => {
     const { name, value } = event.target;
@@ -6888,9 +7810,118 @@ function normalizePayrollRun(data) {
   };
 }
 
+function normalizePayrollPreview(data) {
+  if (!data) {
+    return null;
+  }
+
+  const normalized = normalizePayrollRun(data);
+  return {
+    ...normalized,
+    fiscalYear: data.fiscalYear || null,
+    fiscalYearName: data.fiscalYearName || data.fiscalYear?.name || null,
+    taxPolicyName: data.taxPolicyName || null,
+    taxBasis: data.taxBasis || null,
+    taxTotal: Number(data.taxTotal || data.tax_total || normalized?.totals?.taxAmount || 0)
+  };
+}
+
+function formatTaxSlabRange(slab) {
+  if (!slab) {
+    return "-";
+  }
+
+  if (slab.range) {
+    return slab.range;
+  }
+
+  const fromIncome = Number(slab.fromIncome || 0);
+  const toIncome = slab.toIncome === null || slab.toIncome === undefined ? null : Number(slab.toIncome);
+  if (toIncome === null) {
+    return `PKR ${formatCurrency(fromIncome)} and above`;
+  }
+
+  return `PKR ${formatCurrency(fromIncome)} to PKR ${formatCurrency(toIncome)}`;
+}
+
+function PayrollPreviewTable({ preview }) {
+  const rows = preview?.employees || preview?.items || [];
+  const totals = preview?.totals || { grossPay: 0, totalDeductions: 0, netPay: 0, taxAmount: 0 };
+  const annualizedTotal = rows.reduce((sum, row) => sum + Number(row.taxPreview?.annualizedIncome ?? (row.grossPay || 0) * 12), 0);
+
+  return (
+    <div className="salary-preview-wrap">
+      <div className="salary-preview-summary">
+        <div>
+          <span>Fiscal Year</span>
+          <strong>{preview?.fiscalYear?.name || preview?.fiscalYearName || "-"}</strong>
+        </div>
+        <div>
+          <span>Tax Policy</span>
+          <strong>{preview?.taxPolicyName || "-"}</strong>
+        </div>
+        <div>
+          <span>Tax Basis</span>
+          <strong>{preview?.taxBasis || "-"}</strong>
+        </div>
+        <div>
+          <span>Employees</span>
+          <strong>{rows.length}</strong>
+        </div>
+        <div>
+          <span>Tax Total</span>
+          <strong>PKR {formatCurrency(preview?.taxTotal ?? totals.taxAmount ?? 0)}</strong>
+        </div>
+      </div>
+      <div className="table-wrap salary-preview-table-wrap">
+        <table className="print-report-table salary-preview-table">
+          <thead>
+            <tr>
+              <th>Employee Code</th>
+              <th>Name</th>
+              <th>Gross Pay</th>
+              <th>Annualized Income</th>
+              <th>Tax Slab</th>
+              <th>Tax Amount</th>
+              <th>Net Pay</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.employeeCode}>
+                <td>{row.employeeCode}</td>
+                <td>{row.name || "-"}</td>
+                <td className="amount-cell">{formatCurrency(row.grossPay)}</td>
+                <td className="amount-cell">{formatCurrency(row.taxPreview?.annualizedIncome ?? row.grossPay * 12)}</td>
+                <td>{formatTaxSlabRange(row.taxPreview?.slab)}</td>
+                <td className="amount-cell">{formatCurrency(row.taxAmount ?? 0)}</td>
+                <td className="amount-cell">{formatCurrency(row.netPay)}</td>
+              </tr>
+            ))}
+            {!rows.length ? (
+              <tr>
+                <td colSpan="7">No employees found for this preview.</td>
+              </tr>
+            ) : null}
+            <tr className="report-total-row">
+              <td colSpan="2">Grand Total ({rows.length} employee{rows.length === 1 ? "" : "s"})</td>
+              <td className="amount-cell">{formatCurrency(totals.grossPay)}</td>
+              <td className="amount-cell">{formatCurrency(annualizedTotal)}</td>
+              <td className="amount-cell">-</td>
+              <td className="amount-cell">{formatCurrency(preview?.taxTotal ?? totals.taxAmount ?? 0)}</td>
+              <td className="amount-cell">{formatCurrency(totals.netPay)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function PayrollCalculationResults({ result, filters }) {
   const rows = result?.employees || result?.items || [];
   const totals = result?.totals || { grossPay: 0, totalDeductions: 0, netPay: 0 };
+  const journal = result?.journalEntry || null;
 
   return (
     <div className="arrear-report-print-area salary-calculation-results">
@@ -6901,6 +7932,40 @@ function PayrollCalculationResults({ result, filters }) {
         <span>Deductions: PKR {formatCurrency(totals.totalDeductions)}</span>
         <span>Net: PKR {formatCurrency(totals.netPay)}</span>
       </div>
+      {journal ? (
+        <div className="journal-summary-panel">
+          <div className="print-section-head">
+            <strong>Journal Entry: {journal.referenceNo}</strong>
+            <span>Entry Date: {journal.entryDate}</span>
+            <span>Debit: PKR {formatCurrency(journal.totalDebit)}</span>
+            <span>Credit: PKR {formatCurrency(journal.totalCredit)}</span>
+          </div>
+          <table className="print-report-table salary-calculation-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Description</th>
+                <th>Employee</th>
+                <th>Wage Code</th>
+                <th>Debit</th>
+                <th>Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(journal.lines || []).map((line) => (
+                <tr key={line.id || `${line.lineNo}-${line.accountCode}`}>
+                  <td>{line.accountCode}{line.accountName ? ` - ${line.accountName}` : ""}</td>
+                  <td>{line.description || "-"}</td>
+                  <td>{line.employeeCode || "-"}</td>
+                  <td>{line.wageCode || "-"}</td>
+                  <td className="amount-cell">{formatCurrency(line.debit)}</td>
+                  <td className="amount-cell">{formatCurrency(line.credit)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <table className="print-report-table salary-calculation-table">
         <thead>
           <tr>
@@ -6940,19 +8005,55 @@ function PayrollCalculationResults({ result, filters }) {
   );
 }
 
-function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
+function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFiscalYear = null }) {
   const [filters, setFilters] = useState(payrollDefaultFilters());
   const [result, setResult] = useState(null);
   const [runs, setRuns] = useState([]);
   const [draftRun, setDraftRun] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [fiscalYears, setFiscalYears] = useState([]);
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const fiscalYear = fiscalYears.find((record) => String(record.id) === String(selectedFiscalYearId))
+    || activeFiscalYear
+    || getPayrollFiscalYearRecord();
+  const paymentYear = derivePayrollPaymentYear(filters.month, fiscalYear);
+  const selectedDepartment = departments.find((department) => String(department.code) === String(filters.deptCode));
+  const departmentOptions = [{ code: "999", department: "All Departments" }, ...departments];
 
   const loadRuns = async (nextFilters = filters) => {
     const data = await getPayrollRuns(nextFilters);
     setRuns(data.data || []);
     return data.data || [];
+  };
+
+  const loadMasters = async () => {
+    try {
+      const [departmentResponse, fiscalYearResponse] = await Promise.all([
+        getDepartments(),
+        getFiscalYears()
+      ]);
+
+      const departmentRows = departmentResponse || [];
+      const fiscalYearRows = fiscalYearResponse || [];
+
+      setDepartments(departmentRows);
+      setFiscalYears(fiscalYearRows);
+
+      const activeRow = fiscalYearRows.find((record) => Number(record.isActive) === 1)
+        || fiscalYearRows[0]
+        || activeFiscalYear
+        || getPayrollFiscalYearRecord();
+
+      if (activeRow?.id) {
+        setSelectedFiscalYearId((current) => current || String(activeRow.id));
+      }
+    } catch {
+      setDepartments([]);
+      setFiscalYears([]);
+    }
   };
 
   const loadCurrentPeriod = async () => {
@@ -6968,23 +8069,45 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
         };
         setDraftRun(currentDraft);
         setFilters(nextFilters);
+        if (currentDraft.fiscalYearId) {
+          setSelectedFiscalYearId(String(currentDraft.fiscalYearId));
+        }
         await loadRuns(nextFilters);
         setStatus({ type: "neutral", message: "Draft payroll period found. You can resume processing." });
       } else {
         await loadRuns(filters);
       }
     } catch (error) {
-      setStatus({ type: "error", message: error.message });
+      await loadRuns(filters);
     }
   };
 
   useEffect(() => {
+    loadMasters();
     loadCurrentPeriod();
   }, []);
 
+  useEffect(() => {
+    setFilters((current) => ({
+      ...current,
+      year: derivePayrollPaymentYear(current.month, fiscalYear)
+    }));
+  }, [fiscalYear, selectedFiscalYearId]);
+
   const updateFilter = (event) => {
     const { name, value } = event.target;
-    setFilters((current) => ({ ...current, [name]: value }));
+    if (name === "fiscalYearId") {
+      setSelectedFiscalYearId(value);
+      return;
+    }
+
+    setFilters((current) => {
+      const next = { ...current, [name]: value };
+      if (name === "month") {
+        next.year = derivePayrollPaymentYear(value, fiscalYear);
+      }
+      return next;
+    });
   };
 
   const run = async () => {
@@ -6997,12 +8120,13 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
     setStatus({ type: "", message: "" });
 
     try {
-      const countResponse = await getPayrollEmployeeCount(filters);
-      const employeeCount = Number(countResponse.data?.count || 0);
+      const response = await previewPayroll({ ...filters, year: paymentYear });
+      const preview = normalizePayrollPreview(response.data);
       setConfirmDialog({
-        employeeCount,
-        message: `This will calculate payroll for ${employeeCount} employees for ${filters.month}/${filters.year}. Continue?`
+        preview,
+        message: `Review the preview for ${preview?.fiscalYearName || "the selected fiscal year"} before posting payroll for ${filters.month}/${paymentYear}.`
       });
+      setStatus({ type: "neutral", message: "Payroll preview loaded. Review the slab and tax details before posting." });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {
@@ -7013,10 +8137,10 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
   const processConfirmedRun = async () => {
     setConfirmDialog(null);
     setLoading(true);
-    setStatus({ type: "neutral", message: "Calculating payroll..." });
+    setStatus({ type: "neutral", message: "Posting payroll..." });
 
     try {
-      const response = await processPayroll(filters);
+      const response = await processPayroll({ ...filters, year: paymentYear });
       setResult(normalizePayrollRun(response.data));
       setStatus({ type: "success", message: response.message });
       setDraftRun(null);
@@ -7058,6 +8182,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
     setResult(null);
     setStatus({ type: "", message: "" });
     setDraftRun(null);
+    setSelectedFiscalYearId("");
     if (onGoBack) onGoBack();
   };
 
@@ -7070,7 +8195,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
       "Total Deductions": row.totalDeductions,
       "Net Pay": row.netPay
     }));
-    exportRowsToExcel(rows, `salary-calculation-${filters.month}-${filters.year}.xlsx`);
+    exportRowsToExcel(rows, `salary-calculation-${filters.month}-${paymentYear}.xlsx`);
   };
 
   const hasProcessedRun = Boolean(result?.runId) || runs.some((runItem) => ["processed", "locked"].includes(runItem.status));
@@ -7078,17 +8203,18 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
   return (
     <section className="employee-entry-panel arrear-report-panel salary-calculation-panel">
       {confirmDialog ? (
-        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Confirm salary calculation">
-          <div className="confirm-modal">
+        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Payroll preview">
+          <div className="confirm-modal salary-preview-modal">
             <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
             <div>
               <p>Salary Calculation</p>
-              <h3>{draftRun ? "Resume Payroll Run" : "Start Payroll Run"}</h3>
+              <h3>Payroll Preview</h3>
               <span>{confirmDialog.message}</span>
             </div>
+            {confirmDialog.preview ? <PayrollPreviewTable preview={confirmDialog.preview} /> : null}
             <div className="confirm-modal-actions">
               <button type="button" onClick={() => setConfirmDialog(null)}>Cancel</button>
-              <button type="button" onClick={processConfirmedRun}>Continue</button>
+              <button type="button" onClick={processConfirmedRun}>Post Payroll</button>
             </div>
           </div>
         </div>
@@ -7099,11 +8225,21 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
           <h2>{title}</h2>
         </div>
         <div className="title-actions no-print">
+          <span>{fiscalYear?.name || getActiveFiscalYearLabel()}</span>
+          <span>Payment Year {paymentYear}</span>
           {result ? <button className="refresh-button" type="button" onClick={() => printCurrentDocumentAsExcel(title)}>Print</button> : null}
           {result ? <button type="button" onClick={exportResult}>Save as Excel</button> : null}
         </div>
       </div>
       <div className="salary-period-form no-print">
+        <label>
+          <span>Fiscal Year</span>
+          <select name="fiscalYearId" value={selectedFiscalYearId} onChange={updateFilter}>
+            {(fiscalYears.length ? fiscalYears : fiscalYear ? [fiscalYear] : []).map((record) => (
+              <option value={String(record.id)} key={record.id}>{record.name}</option>
+            ))}
+          </select>
+        </label>
         <label>
           <span>Month</span>
           <select name="month" value={filters.month} onChange={updateFilter}>
@@ -7113,12 +8249,18 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack }) {
           </select>
         </label>
         <label>
-          <span>Year</span>
-          <input type="number" name="year" min="2000" max="2100" value={filters.year} onChange={updateFilter} />
+          <span>Dept Code</span>
+          <select name="deptCode" value={filters.deptCode} onChange={updateFilter}>
+            {departmentOptions.map((department) => (
+              <option key={department.code} value={department.code}>
+                {department.code} - {department.department}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
-          <span>Dept Code</span>
-          <input type="number" name="deptCode" value={filters.deptCode} onChange={updateFilter} placeholder="999 = All Departments" />
+          <span>Dept Name</span>
+          <input type="text" value={selectedDepartment?.department || (String(filters.deptCode) === "999" ? "All Departments" : "")} readOnly />
         </label>
         <div className="report-filter-actions">
           <button type="button" onClick={goBack}>Go Back</button>
@@ -7297,8 +8439,17 @@ function DesignationWiseListPage() {
 }
 
 function AnnualIncomeTaxSchedulePage() {
-  const year = String(new Date().getFullYear());
-  const [filters, setFilters] = useState({ reportFor: "All", fromMonth: "1", fromYear: year, toMonth: "12", toYear: year, code: "G12713", outputSelection: "screen" });
+  const fiscalYearRange = getActiveFiscalYearRange();
+  const year = fiscalYearRange?.endYear || String(new Date().getFullYear());
+  const [filters, setFilters] = useState({
+    reportFor: "All",
+    fromMonth: fiscalYearRange?.startMonth || "1",
+    fromYear: fiscalYearRange?.startYear || year,
+    toMonth: fiscalYearRange?.endMonth || "12",
+    toYear: fiscalYearRange?.endYear || year,
+    code: "6002",
+    outputSelection: "screen"
+  });
   const [report, setReport] = useState(null);
   const run = async () => {
     const result = await getReportModule("annual-income-tax-schedule", filters);
@@ -7306,7 +8457,7 @@ function AnnualIncomeTaxSchedulePage() {
     if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("annual-income-tax-schedule"), 150);
     if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("annual-income-tax-schedule");
   };
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Annual Income Tax Schedule</h2></div></div><div className="report-filter-panel no-print"><label><span>Report For</span><select value={filters.reportFor} onChange={(e) => setFilters((c) => ({ ...c, reportFor: e.target.value }))}><option>All</option><option>Regular</option><option>Contract</option></select></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>To Year</span><input type="number" value={filters.toYear} onChange={(e) => setFilters((c) => ({ ...c, toYear: e.target.value }))} /></label><label><span>Code</span><input value={filters.code} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Annual Income Tax Schedule" filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}`} /><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Annual Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.annualTotal)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(report.totals[m])}</td>)}<td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
+  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Annual Income Tax Schedule</h2></div><span>{fiscalYearRange ? fiscalYearRange.name : getActiveFiscalYearLabel()}</span></div><div className="report-filter-panel no-print"><label><span>Report For</span><select value={filters.reportFor} onChange={(e) => setFilters((c) => ({ ...c, reportFor: e.target.value }))}><option>All</option><option>Regular</option><option>Contract</option></select></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>From Year</span><input type="number" value={filters.fromYear} onChange={(e) => setFilters((c) => ({ ...c, fromYear: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>To Year</span><input type="number" value={filters.toYear} onChange={(e) => setFilters((c) => ({ ...c, toYear: e.target.value }))} /></label><label><span>Code</span><input value={filters.code} onChange={(e) => setFilters((c) => ({ ...c, code: e.target.value }))} /></label><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{report ? <div className="arrear-report-print-area"><ReportLetterhead title="Annual Income Tax Schedule" filterSummary={`${filters.fromMonth}/${filters.fromYear} to ${filters.toMonth}/${filters.toYear}${fiscalYearRange ? ` | ${fiscalYearRange.name}` : ""}`} /><table className="print-report-table"><thead><tr><th>Code</th><th>Name</th>{(report.months || []).map((m) => <th key={m}>{m}</th>)}<th>Annual Total</th></tr></thead><tbody>{(report.rows || []).map((r) => <tr key={r.employee_code}><td>{r.employee_code}</td><td>{r.name}</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(r.months[m])}</td>)}<td className="amount-cell">{formatCurrency(r.annualTotal)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td>{report.months.map((m) => <td className="amount-cell" key={m}>{formatCurrency(report.totals[m])}</td>)}<td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div> : null}</section>;
 }
 
 function PostAuditPage() {
@@ -7758,7 +8909,7 @@ function DashboardAnalytics({ summary }) {
   );
 }
 
-export default function DashboardPage({ user, onLogout, initialPage = "Dashboard" }) {
+export default function DashboardPage({ user, onLogout, initialPage = "Dashboard", activeFiscalYear = null }) {
   const [openSection, setOpenSection] = useState("Transactions");
   const [activeItem, setActiveItem] = useState(initialPage);
   const [employeeSummary, setEmployeeSummary] = useState({
@@ -7768,6 +8919,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
     departmentBreakdown: [],
     bpsBreakdown: []
   });
+  const currentFiscalYear = activeFiscalYear || getActiveFiscalYearRecord();
 
   const summaryCards = [
     { label: "Active Employees", value: employeeSummary.activeEmployees, icon: Users },
@@ -7905,6 +9057,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
             <h1>{activeItem}</h1>
           </div>
           <div className="user-actions">
+            <span>{currentFiscalYear?.name || getActiveFiscalYearLabel()}</span>
             <span>{user?.name || "Hospital Admin"}</span>
             <button type="button" onClick={onLogout}>
               <LogOut size={18} />
@@ -7965,9 +9118,9 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
         ) : activeItem === "Scale Audit Proof Printing" ? (
           <ScaleAuditProofPrintingPage />
         ) : activeItem === "Payroll" ? (
-          <PayrollProcessPage title="Payroll" />
+          <PayrollProcessPage title="Payroll" activeFiscalYear={currentFiscalYear} />
         ) : activeItem === "Salary Calculation" ? (
-          <PayrollProcessPage title="Salary Calculation" onGoBack={() => navigateToPage("M.Process")} />
+          <PayrollProcessPage title="Salary Calculation" onGoBack={() => navigateToPage("M.Process")} activeFiscalYear={currentFiscalYear} />
         ) : activeItem === "New Percent Allowance Creation" ? (
           <PercentAllowanceCreationPage />
         ) : activeItem === "Fixed Amount Allowance Creation" ? (
@@ -7993,7 +9146,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
         ) : activeItem === "Single Pay Slips" ? (
           <SinglePaySlipPage />
         ) : activeItem === "Income Tax Schedule" ? (
-          <PayDedSchedulePage title="Income Tax Schedule" defaultCodeKey="incomeTax" defaultCode="G12713" />
+          <PayDedSchedulePage title="Income Tax Schedule" defaultCodeKey="incomeTax" defaultCode="6002" />
         ) : activeItem === "G.P. Fund Schedule" ? (
           <PayDedSchedulePage title="G.P. Fund Schedule" defaultCodeKey="gpFund" defaultCode="G06103" />
         ) : activeItem === "Other Schedules" ? (
@@ -8042,6 +9195,10 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <AccountCodeManagement />
         ) : activeItem === "Wage Type Code Making" || activeItem === "Wage Type Code List" ? (
           <WageCodeMaster />
+        ) : activeItem === "Fiscal Year Settings" ? (
+          <FiscalYearManagement />
+        ) : activeItem === "Tax Slab Settings" ? (
+          <TaxSlabManagement />
         ) : activeItem === "Reset Data" ? (
           <ResetDataPanel />
         ) : activeItem === "Password Change" ? (

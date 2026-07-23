@@ -1956,6 +1956,68 @@ h1 {
   background: #b7791f;
 }
 
+.salary-preview-modal {
+  width: min(100%, 1180px);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  justify-items: stretch;
+  text-align: left;
+}
+
+.salary-preview-modal > div {
+  width: 100%;
+}
+
+.salary-preview-wrap {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.salary-preview-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d4e4e1;
+  border-radius: 10px;
+  background: #f0faf7;
+}
+
+.salary-preview-summary div {
+  display: grid;
+  gap: 4px;
+}
+
+.salary-preview-summary span {
+  color: #4d6468;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.salary-preview-summary strong {
+  color: #17383c;
+  font-size: 1rem;
+}
+
+.salary-preview-table-wrap {
+  max-height: 56vh;
+  overflow: auto;
+  border: 1px solid #d4e4e1;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.salary-preview-table {
+  min-width: 1020px;
+}
+
+.salary-preview-table th,
+.salary-preview-table td {
+  padding: 11px 12px;
+}
+
 @keyframes modalBackdropIn {
   from {
     opacity: 0;

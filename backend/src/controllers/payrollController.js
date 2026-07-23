@@ -12,6 +12,7 @@ import {
   getPayrollScaleAudit,
   getPayslips,
   getSinglePayslip,
+  previewPayroll,
   processPayroll,
   reopenPayrollRun
 } from "../models/payrollModel.js";
@@ -54,6 +55,25 @@ export async function processPayrollRun(req, res) {
   } catch (error) {
     console.error("Payroll processing failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Payroll processing failed." });
+  }
+}
+
+export async function previewPayrollRun(req, res) {
+  const filter = filters(req);
+  if (!requirePeriod(res, filter)) return;
+
+  try {
+    const result = await previewPayroll({
+      paymentMonth: filter.month,
+      paymentYear: filter.year,
+      deptCode: filter.deptCode,
+      gazNg: filter.gazNg,
+      reportFor: filter.reportFor
+    });
+    return res.json({ success: true, data: result, message: "Payroll preview loaded." });
+  } catch (error) {
+    console.error("Payroll preview failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Payroll preview failed." });
   }
 }
 
