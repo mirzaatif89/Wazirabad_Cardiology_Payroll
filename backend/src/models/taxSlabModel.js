@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { getFiscalYearById } from "./fiscalYearModel.js";
 
 function toNull(value) {
   return value === "" || value === undefined ? null : value;
@@ -56,6 +57,18 @@ function calculateProgressiveTax(taxableIncome, slabs) {
   const amount = fixedTax + (incrementalIncome * rate) / 100;
 
   return { amount: roundCurrency(amount), slab };
+}
+
+function getMonthsRemainingInFiscalYear(paymentMonth, paymentYear, fiscalYear) {
+  if (!fiscalYear?.endDate) {
+    return 12;
+  }
+
+  const paymentIndex = Number(paymentYear) * 12 + Number(paymentMonth);
+  const fiscalEnd = new Date(fiscalYear.endDate);
+  const endIndex = fiscalEnd.getFullYear() * 12 + (fiscalEnd.getMonth() + 1);
+
+  return Math.max(1, endIndex - paymentIndex + 1);
 }
 
 async function ensureActivePolicyForFiscalYear(connection, fiscalYearId) {
@@ -252,8 +265,17 @@ export async function getTaxSlabs(policyId, connection = pool) {
   return rows;
 }
 
-export async function calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome, connection = pool }) {
+export async function calculatePayrollTaxDeduction({
+  fiscalYearId,
+  taxableIncome,
+  paymentMonth = null,
+  paymentYear = null,
+  priorTaxCredit = 0,
+  companyTaxPaidYTD = 0,
+  connection = pool
+}) {
   const income = Number(taxableIncome || 0);
+  const creditBalance = Math.max(0, Number(priorTaxCredit || 0) + Number(companyTaxPaidYTD || 0));
 
   if (!fiscalYearId || !Number.isFinite(income) || income <= 0) {
     return {
@@ -261,6 +283,9 @@ export async function calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome
       annualAmount: 0,
       annualizedIncome: 0,
       effectiveTaxableIncome: 0,
+      creditBalance,
+      remainingAnnualTax: 0,
+      monthsRemaining: null,
       basis: null,
       taxableIncome: income,
       policy: null,
@@ -276,6 +301,9 @@ export async function calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome
       annualAmount: 0,
       annualizedIncome: 0,
       effectiveTaxableIncome: 0,
+      creditBalance,
+      remainingAnnualTax: 0,
+      monthsRemaining: null,
       basis: null,
       taxableIncome: income,
       policy: null,
@@ -291,6 +319,9 @@ export async function calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome
       annualAmount: 0,
       annualizedIncome: 0,
       effectiveTaxableIncome: 0,
+      creditBalance,
+      remainingAnnualTax: 0,
+      monthsRemaining: null,
       basis: policy.basis,
       taxableIncome: income,
       policy,
@@ -300,14 +331,22 @@ export async function calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome
 
   const effectiveIncome = policy.basis === "annual" ? income * 12 : income;
   const { amount: annualAmount, slab } = calculateProgressiveTax(effectiveIncome, slabs);
-  const amount = policy.basis === "annual" ? roundCurrency(annualAmount / 12) : annualAmount;
+  const fiscalYear = fiscalYearId ? await getFiscalYearById(fiscalYearId) : null;
   const annualizedIncome = roundCurrency(income * 12);
+  const monthsRemaining = policy.basis === "annual" ? getMonthsRemainingInFiscalYear(paymentMonth, paymentYear, fiscalYear) : null;
+  const remainingAnnualTax = Math.max(0, annualAmount - creditBalance);
+  const amount = policy.basis === "annual"
+    ? roundCurrency(remainingAnnualTax / (monthsRemaining || 12))
+    : roundCurrency(Math.max(0, annualAmount - creditBalance));
 
   return {
     amount,
     annualAmount,
     annualizedIncome,
     effectiveTaxableIncome: effectiveIncome,
+    creditBalance,
+    remainingAnnualTax,
+    monthsRemaining,
     basis: policy.basis,
     taxableIncome: income,
     policy,

@@ -1207,6 +1207,17 @@ export async function reopenPayrollRun(id) {
   return readJsonResponse(response, "Payroll reopen failed.");
 }
 
+export async function voidPayrollRun(id, payload = {}) {
+  const response = await fetch(`${API_BASE_URL}/payroll/runs/${id}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      voided_by: payload.voidedBy || "Hospital Admin"
+    })
+  });
+  return readJsonResponse(response, "Payroll void failed.");
+}
+
 async function postMprocess(endpoint, payload, fallbackMessage) {
   const response = await fetch(`${API_BASE_URL}/mprocess/${endpoint}`, {
     method: "POST",

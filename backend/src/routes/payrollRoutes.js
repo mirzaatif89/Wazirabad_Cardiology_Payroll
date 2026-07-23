@@ -14,6 +14,7 @@ import {
   previewPayrollRun,
   processPayrollRun,
   reopenRun,
+  voidRun,
   scaleAuditRegister,
   singlePayslip
 } from "../controllers/payrollController.js";
@@ -27,6 +28,7 @@ router.post("/process", processPayrollRun);
 router.get("/runs", listPayrollRuns);
 router.get("/runs/:id", getRun);
 router.post("/runs/:id/reopen", reopenRun);
+router.post("/runs/:id/void", voidRun);
 router.get("/bank-summary", bankSummary);
 router.get("/non-bank-salary", nonBankSalary);
 router.get("/grand-bank-summary", grandBankSummary);

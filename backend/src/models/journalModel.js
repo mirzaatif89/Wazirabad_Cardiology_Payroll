@@ -283,3 +283,149 @@ export async function getJournalEntryByPayrollRun(payrollRunId, connection = poo
 
   return { ...entry, lines };
 }
+
+async function getJournalEntryById(entryId, connection = pool) {
+  const [[entry]] = await connection.query(
+    `
+      SELECT
+        je.id,
+        je.source_type AS sourceType,
+        je.source_id AS sourceId,
+        je.payroll_run_id AS payrollRunId,
+        je.fiscal_year_id AS fiscalYearId,
+        je.entry_date AS entryDate,
+        je.reference_no AS referenceNo,
+        je.description,
+        je.total_debit AS totalDebit,
+        je.total_credit AS totalCredit,
+        je.status,
+        je.posted_by AS postedBy,
+        je.created_at AS createdAt,
+        je.updated_at AS updatedAt
+      FROM journal_entries je
+      WHERE je.id = ?
+      LIMIT 1
+    `,
+    [entryId]
+  );
+
+  if (!entry) {
+    return null;
+  }
+
+  const [lines] = await connection.query(
+    `
+      SELECT
+        jel.id,
+        jel.line_no AS lineNo,
+        jel.account_code AS accountCode,
+        coa.name AS accountName,
+        jel.description,
+        jel.employee_code AS employeeCode,
+        jel.wage_code AS wageCode,
+        jel.debit,
+        jel.credit
+      FROM journal_entry_lines jel
+      INNER JOIN chart_of_accounts coa ON coa.code = jel.account_code
+      WHERE jel.journal_entry_id = ?
+      ORDER BY jel.line_no ASC, jel.id ASC
+    `,
+    [entry.id]
+  );
+
+  return { ...entry, lines };
+}
+
+export async function reversePayrollJournalEntryByRun(payrollRunId, connection = pool, reversedBy = "Hospital Admin") {
+  const entry = await getJournalEntryByPayrollRun(payrollRunId, connection);
+  if (!entry) {
+    return null;
+  }
+
+  if (String(entry.status || "").toLowerCase() === "reversed") {
+    return entry;
+  }
+
+  const reversalLines = (entry.lines || []).map((line) =>
+    buildJournalLine({
+      accountCode: line.accountCode,
+      description: `Reversal of ${line.description || entry.referenceNo}`,
+      employeeCode: line.employeeCode,
+      wageCode: line.wageCode,
+      debit: line.credit,
+      credit: line.debit
+    })
+  );
+
+  const totalDebit = roundCurrency(reversalLines.reduce((sum, line) => sum + Number(line.debit || 0), 0));
+  const totalCredit = roundCurrency(reversalLines.reduce((sum, line) => sum + Number(line.credit || 0), 0));
+
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    throw new Error(`Payroll reversal is not balanced: debit ${totalDebit} vs credit ${totalCredit}.`);
+  }
+
+  const [reversalResult] = await connection.query(
+    `
+      INSERT INTO journal_entries (
+        source_type,
+        source_id,
+        payroll_run_id,
+        fiscal_year_id,
+        entry_date,
+        reference_no,
+        description,
+        total_debit,
+        total_credit,
+        status,
+        posted_by
+      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 'posted', ?)
+    `,
+    [
+      "payroll_run_reversal",
+      entry.id,
+      entry.fiscalYearId || null,
+      entry.entryDate,
+      `${entry.referenceNo}-REV`,
+      `Reversal of ${entry.description || entry.referenceNo}`,
+      totalDebit,
+      totalCredit,
+      reversedBy
+    ]
+  );
+
+  if (reversalLines.length) {
+    await connection.query(
+      `
+        INSERT INTO journal_entry_lines (
+          journal_entry_id,
+          line_no,
+          account_code,
+          description,
+          employee_code,
+          wage_code,
+          debit,
+          credit
+        ) VALUES ?
+      `,
+      [
+        reversalLines.map((line, index) => [
+          reversalResult.insertId,
+          index + 1,
+          line.accountCode,
+          line.description,
+          line.employeeCode,
+          line.wageCode,
+          line.debit,
+          line.credit
+        ])
+      ]
+    );
+  }
+
+  await connection.query(
+    "UPDATE journal_entries SET status = 'reversed', payroll_run_id = NULL WHERE id = ?",
+    [entry.id]
+  );
+
+  return getJournalEntryById(reversalResult.insertId, connection);
+}

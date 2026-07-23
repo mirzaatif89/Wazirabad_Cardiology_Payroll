@@ -96,6 +96,7 @@ import {
   getTaxPolicies,
   getTaxSlabs,
   reopenPayrollRun,
+  voidPayrollRun,
   reopenArrearBill,
   reopenBudgetTransaction,
   resetSoftwareData,
@@ -149,6 +150,7 @@ const newEmployeeFields = [
   { label: "Gaz/NG", name: "gazNg", type: "select", options: ["Gazetted", "Non Gazetted"] },
   { label: "D.O.B.", name: "dateOfBirth", type: "date" },
   { label: "Date Of Joining", name: "dateOfJoining", type: "date" },
+  { label: "Prior Employer Tax Credit", name: "priorEmployerTaxCredit", type: "number" },
   { label: "Department Code", name: "departmentCode" },
   { label: "Department", name: "department", readOnly: true },
   { label: "Service Type", name: "serviceType", type: "select", options: ["Regular", "Contract", "Adhoc"] },
@@ -7848,6 +7850,8 @@ function PayrollPreviewTable({ preview }) {
   const rows = preview?.employees || preview?.items || [];
   const totals = preview?.totals || { grossPay: 0, totalDeductions: 0, netPay: 0, taxAmount: 0 };
   const annualizedTotal = rows.reduce((sum, row) => sum + Number(row.taxPreview?.annualizedIncome ?? (row.grossPay || 0) * 12), 0);
+  const priorCreditTotal = rows.reduce((sum, row) => sum + Number(row.taxPreview?.priorEmployerTaxCredit || 0), 0);
+  const companyTaxPaidTotal = rows.reduce((sum, row) => sum + Number(row.taxPreview?.companyTaxPaidYTD || 0), 0);
 
   return (
     <div className="salary-preview-wrap">
@@ -7863,6 +7867,14 @@ function PayrollPreviewTable({ preview }) {
         <div>
           <span>Tax Basis</span>
           <strong>{preview?.taxBasis || "-"}</strong>
+        </div>
+        <div>
+          <span>Prior Employer Credit</span>
+          <strong>PKR {formatCurrency(priorCreditTotal)}</strong>
+        </div>
+        <div>
+          <span>Company Tax YTD</span>
+          <strong>PKR {formatCurrency(companyTaxPaidTotal)}</strong>
         </div>
         <div>
           <span>Employees</span>
@@ -7882,6 +7894,8 @@ function PayrollPreviewTable({ preview }) {
               <th>Gross Pay</th>
               <th>Annualized Income</th>
               <th>Tax Slab</th>
+              <th>Opening Credit</th>
+              <th>Tax Paid YTD</th>
               <th>Tax Amount</th>
               <th>Net Pay</th>
             </tr>
@@ -7894,13 +7908,15 @@ function PayrollPreviewTable({ preview }) {
                 <td className="amount-cell">{formatCurrency(row.grossPay)}</td>
                 <td className="amount-cell">{formatCurrency(row.taxPreview?.annualizedIncome ?? row.grossPay * 12)}</td>
                 <td>{formatTaxSlabRange(row.taxPreview?.slab)}</td>
+                <td className="amount-cell">{formatCurrency(row.taxPreview?.priorEmployerTaxCredit || 0)}</td>
+                <td className="amount-cell">{formatCurrency(row.taxPreview?.companyTaxPaidYTD || 0)}</td>
                 <td className="amount-cell">{formatCurrency(row.taxAmount ?? 0)}</td>
                 <td className="amount-cell">{formatCurrency(row.netPay)}</td>
               </tr>
             ))}
             {!rows.length ? (
               <tr>
-                <td colSpan="7">No employees found for this preview.</td>
+                <td colSpan="9">No employees found for this preview.</td>
               </tr>
             ) : null}
             <tr className="report-total-row">
@@ -7908,6 +7924,8 @@ function PayrollPreviewTable({ preview }) {
               <td className="amount-cell">{formatCurrency(totals.grossPay)}</td>
               <td className="amount-cell">{formatCurrency(annualizedTotal)}</td>
               <td className="amount-cell">-</td>
+              <td className="amount-cell">{formatCurrency(priorCreditTotal)}</td>
+              <td className="amount-cell">{formatCurrency(companyTaxPaidTotal)}</td>
               <td className="amount-cell">{formatCurrency(preview?.taxTotal ?? totals.taxAmount ?? 0)}</td>
               <td className="amount-cell">{formatCurrency(totals.netPay)}</td>
             </tr>
@@ -8177,6 +8195,25 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     }
   };
 
+  const voidCurrentRun = async () => {
+    const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
+    if (!runId) return;
+
+    if (!window.confirm("This will void the payroll run and create a reversal journal entry. Continue?")) {
+      return;
+    }
+
+    try {
+      await voidPayrollRun(runId);
+      setResult(null);
+      setStatus({ type: "success", message: "Payroll run voided and reversed. You can process it again." });
+      await loadRuns();
+      await loadCurrentPeriod();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
   const goBack = () => {
     setFilters(payrollDefaultFilters());
     setResult(null);
@@ -8271,6 +8308,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
       {hasProcessedRun ? (
         <div className="salary-run-actions no-print">
           <button className="refresh-button" type="button" onClick={reopenCurrentRun}>Reopen for Reprocessing</button>
+          <button type="button" onClick={voidCurrentRun}>Void / Delete</button>
         </div>
       ) : null}
       {result ? <PayrollCalculationResults result={result} filters={filters} /> : null}

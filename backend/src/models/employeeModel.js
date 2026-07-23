@@ -19,6 +19,7 @@ export async function ensureEmployeesTable() {
       gaz_ng VARCHAR(30),
       date_of_birth DATE NULL,
       date_of_joining DATE NULL,
+      prior_employer_tax_credit DECIMAL(12, 2) NOT NULL DEFAULT 0,
       department_code VARCHAR(50),
       department VARCHAR(150),
       service_type VARCHAR(100),
@@ -44,6 +45,12 @@ export async function ensureEmployeesTable() {
 
   if (!departmentCodeColumns.length) {
     await pool.query("ALTER TABLE employees ADD COLUMN department_code VARCHAR(50) NULL AFTER date_of_joining");
+  }
+
+  const [priorEmployerTaxCreditColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'prior_employer_tax_credit'");
+
+  if (!priorEmployerTaxCreditColumns.length) {
+    await pool.query("ALTER TABLE employees ADD COLUMN prior_employer_tax_credit DECIMAL(12, 2) NOT NULL DEFAULT 0 AFTER date_of_joining");
   }
 
   const [designationCodeColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'designation_code'");
@@ -132,6 +139,7 @@ export async function insertEmployee(employee) {
         gaz_ng,
         date_of_birth,
         date_of_joining,
+        prior_employer_tax_credit,
         department_code,
         department,
         service_type,
@@ -148,7 +156,7 @@ export async function insertEmployee(employee) {
         status,
         stop_date,
         special_designation
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       employee.employeeNo,
@@ -166,6 +174,7 @@ export async function insertEmployee(employee) {
       toNull(employee.gazNg),
       toNull(employee.dateOfBirth),
       toNull(employee.dateOfJoining),
+      Number(employee.priorEmployerTaxCredit || 0),
       toNull(employee.departmentCode),
       toNull(employee.department),
       toNull(employee.serviceType),
@@ -207,6 +216,7 @@ export async function getEmployees() {
       gaz_ng AS gazNg,
       DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS dateOfBirth,
       DATE_FORMAT(date_of_joining, '%Y-%m-%d') AS dateOfJoining,
+      prior_employer_tax_credit AS priorEmployerTaxCredit,
       department_code AS departmentCode,
       department,
       service_type AS serviceType,
@@ -266,6 +276,7 @@ export async function getEmployeeByCode(employeeNo) {
         gaz_ng AS gazNg,
         DATE_FORMAT(date_of_birth, '%Y-%m-%d') AS dateOfBirth,
         DATE_FORMAT(date_of_joining, '%Y-%m-%d') AS dateOfJoining,
+        prior_employer_tax_credit AS priorEmployerTaxCredit,
         department_code AS departmentCode,
         department,
         service_type AS serviceType,
@@ -321,6 +332,7 @@ export async function updateEmployeeById(id, employee) {
         gaz_ng = ?,
         date_of_birth = ?,
         date_of_joining = ?,
+        prior_employer_tax_credit = ?,
         department_code = ?,
         department = ?,
         service_type = ?,
@@ -355,6 +367,7 @@ export async function updateEmployeeById(id, employee) {
       toNull(employee.gazNg),
       toNull(employee.dateOfBirth),
       toNull(employee.dateOfJoining),
+      Number(employee.priorEmployerTaxCredit || 0),
       toNull(employee.departmentCode),
       toNull(employee.department),
       toNull(employee.serviceType),

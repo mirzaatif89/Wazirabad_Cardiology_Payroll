@@ -14,7 +14,8 @@ import {
   getSinglePayslip,
   previewPayroll,
   processPayroll,
-  reopenPayrollRun
+  reopenPayrollRun,
+  voidPayrollRun
 } from "../models/payrollModel.js";
 
 function filters(req) {
@@ -126,6 +127,17 @@ export async function reopenRun(req, res) {
   } catch (error) {
     console.error("Payroll reopen failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Payroll reopen failed." });
+  }
+}
+
+export async function voidRun(req, res) {
+  try {
+    const result = await voidPayrollRun(req.params.id, req.body?.voided_by || "Hospital Admin");
+    if (result === "not_found") return res.status(404).json({ success: false, data: null, message: "Payroll run not found." });
+    return res.json({ success: true, data: result, message: "Payroll run voided." });
+  } catch (error) {
+    console.error("Payroll void failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Payroll void failed." });
   }
 }
 

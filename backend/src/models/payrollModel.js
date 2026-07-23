@@ -1,7 +1,7 @@
 import { pool } from "../config/database.js";
 import { env } from "../config/env.js";
 import { logAuditAction } from "./auditLogModel.js";
-import { createPayrollJournalEntry, getJournalEntryByPayrollRun } from "./journalModel.js";
+import { createPayrollJournalEntry, getJournalEntryByPayrollRun, reversePayrollJournalEntryByRun } from "./journalModel.js";
 import { getActiveFiscalYear, getFiscalYearForDate } from "./fiscalYearModel.js";
 import { calculatePayrollTaxDeduction } from "./taxSlabModel.js";
 import { getWageCodeByCode } from "./wageCodeModel.js";
@@ -20,7 +20,7 @@ export async function ensurePayrollTables() {
       payment_month INT NOT NULL,
       payment_year INT NOT NULL,
       dept_code VARCHAR(50) NOT NULL DEFAULT '999',
-      status ENUM('draft','processed','locked') DEFAULT 'draft',
+      status ENUM('draft','processed','locked','void') DEFAULT 'draft',
       processed_at TIMESTAMP NULL,
       processed_by VARCHAR(100),
       CONSTRAINT fk_payroll_runs_fiscal_year
@@ -33,6 +33,11 @@ export async function ensurePayrollTables() {
   const [fiscalYearColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'fiscal_year_id'");
   if (!fiscalYearColumns.length) {
     await pool.query("ALTER TABLE payroll_runs ADD COLUMN fiscal_year_id INT NULL AFTER id");
+  }
+
+  const [statusColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'status'");
+  if (statusColumns.length) {
+    await pool.query("ALTER TABLE payroll_runs MODIFY status ENUM('draft','processed','locked','void') DEFAULT 'draft'");
   }
 
   const [fiscalYearConstraint] = await pool.query(
@@ -132,6 +137,7 @@ async function getEmployeesForPayroll(connection, filters = {}) {
         e.designation,
         e.bps,
         e.gaz_ng AS gazNg,
+        e.prior_employer_tax_credit AS priorEmployerTaxCredit,
         e.bank_code AS bankCode,
         e.bank_branch_code AS bankBranchCode,
         e.account_no AS accountNo
@@ -158,6 +164,7 @@ async function findEmployeeForPayroll(employeeCode, connection = pool, activeOnD
         e.designation,
         e.bps,
         e.gaz_ng AS gazNg,
+        e.prior_employer_tax_credit AS priorEmployerTaxCredit,
         e.bank_code AS bankCode,
         e.bank_branch_code AS bankBranchCode,
         e.account_no AS accountNo
@@ -175,6 +182,32 @@ async function findEmployeeForPayroll(employeeCode, connection = pool, activeOnD
 async function tableExists(tableName, connection = pool) {
   const [rows] = await connection.query("SHOW TABLES LIKE ?", [tableName]);
   return rows.length > 0;
+}
+
+async function getEmployeeTaxPaidToDate(employeeCode, fiscalYearId, paymentMonth, paymentYear, connection = pool) {
+  if (!fiscalYearId) {
+    return 0;
+  }
+
+  const [[row]] = await connection.query(
+    `
+      SELECT COALESCE(SUM(prid.amount), 0) AS taxPaid
+      FROM payroll_runs pr
+      INNER JOIN payroll_run_items pri ON pri.payroll_run_id = pr.id
+      INNER JOIN payroll_run_item_details prid ON prid.payroll_run_item_id = pri.id
+      WHERE pr.fiscal_year_id = ?
+        AND pri.employee_code = ?
+        AND pr.status IN ('processed', 'locked')
+        AND prid.wage_code = ?
+        AND (
+          pr.payment_year < ?
+          OR (pr.payment_year = ? AND pr.payment_month < ?)
+        )
+    `,
+    [fiscalYearId, String(employeeCode), INCOME_TAX_WAGE_CODE, Number(paymentYear), Number(paymentYear), Number(paymentMonth)]
+  );
+
+  return Number(row?.taxPaid || 0);
 }
 
 function isGrossWageCode(code) {
@@ -259,7 +292,17 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
     .filter((line) => isDeductionWageCode(line.numericCode))
     .reduce((total, line) => total + Math.abs(line.amount), 0);
   const taxWageCode = await getWageCodeByCode(INCOME_TAX_WAGE_CODE);
-  const taxResult = await calculatePayrollTaxDeduction({ fiscalYearId, taxableIncome: grossPay, connection });
+  const priorEmployerTaxCredit = Math.max(0, Number(employee.priorEmployerTaxCredit || 0));
+  const companyTaxPaidYTD = await getEmployeeTaxPaidToDate(employee.employeeCode, fiscalYearId, paymentMonth, paymentYear, connection);
+  const taxResult = await calculatePayrollTaxDeduction({
+    fiscalYearId,
+    taxableIncome: grossPay,
+    paymentMonth,
+    paymentYear,
+    priorTaxCredit: priorEmployerTaxCredit,
+    companyTaxPaidYTD,
+    connection
+  });
   const taxAmount = Number(taxResult.amount || 0);
   const taxLine = taxAmount > 0 ? {
     wageCode: INCOME_TAX_WAGE_CODE,
@@ -289,6 +332,11 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
       taxableIncome: Number(grossPay || 0),
       annualizedIncome: Number(taxResult.annualizedIncome || 0),
       effectiveTaxableIncome: Number(taxResult.effectiveTaxableIncome || 0),
+      priorEmployerTaxCredit,
+      companyTaxPaidYTD,
+      creditBalance: Number(taxResult.creditBalance || 0),
+      remainingAnnualTax: Number(taxResult.remainingAnnualTax || 0),
+      monthsRemaining: taxResult.monthsRemaining || null,
       amount: taxAmount,
       annualAmount: Number(taxResult.annualAmount || 0),
       slab: taxResult.slab
@@ -673,17 +721,76 @@ export async function getPayrollRunById(id) {
 }
 
 export async function reopenPayrollRun(id) {
-  const [[run]] = await pool.query("SELECT id, payment_month AS month, payment_year AS year, dept_code AS deptCode, status FROM payroll_runs WHERE id = ? LIMIT 1", [id]);
-  if (!run) return "not_found";
-  await pool.query("UPDATE payroll_runs SET status = 'draft' WHERE id = ?", [id]);
-  await logAuditAction({
-    action: "reopen",
-    documentType: "payroll",
-    documentNo: id,
-    performedBy: "Hospital Admin",
-    notes: `Reopened payroll run ${run.month}/${run.year} dept ${run.deptCode}.`
-  });
-  return "reopened";
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const [[run]] = await connection.query(
+      "SELECT id, payment_month AS month, payment_year AS year, dept_code AS deptCode, status FROM payroll_runs WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    if (!run) {
+      await connection.rollback();
+      return "not_found";
+    }
+
+    const runStatus = String(run.status || "").toLowerCase();
+    if (runStatus === "processed" || runStatus === "locked") {
+      await reversePayrollJournalEntryByRun(id, connection, "Hospital Admin");
+    }
+    await connection.query("UPDATE payroll_runs SET status = 'draft', processed_at = NULL WHERE id = ?", [id]);
+    await logAuditAction({
+      action: "reopen",
+      documentType: "payroll",
+      documentNo: id,
+      performedBy: "Hospital Admin",
+      notes: `Reopened payroll run ${run.month}/${run.year} dept ${run.deptCode}.`
+    });
+    await connection.commit();
+    return "reopened";
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function voidPayrollRun(id, voidedBy = "Hospital Admin") {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const [[run]] = await connection.query(
+      "SELECT id, payment_month AS month, payment_year AS year, dept_code AS deptCode, status FROM payroll_runs WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    if (!run) {
+      await connection.rollback();
+      return "not_found";
+    }
+
+    const journal = await reversePayrollJournalEntryByRun(id, connection, voidedBy);
+
+    await connection.query("UPDATE payroll_runs SET status = 'void', processed_at = NULL WHERE id = ?", [id]);
+    await logAuditAction({
+      action: "void",
+      documentType: "payroll",
+      documentNo: id,
+      performedBy: voidedBy,
+      notes: `Voided payroll run ${run.month}/${run.year} dept ${run.deptCode}.`
+    });
+
+    await connection.commit();
+    return { status: "voided", journal };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 async function getRun(filters = {}) {
