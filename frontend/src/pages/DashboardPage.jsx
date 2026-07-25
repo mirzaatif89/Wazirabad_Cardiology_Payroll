@@ -8034,12 +8034,45 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const [loadingRunId, setLoadingRunId] = useState(null);
+  const [historyFilters, setHistoryFilters] = useState({ search: "", status: "all" });
   const fiscalYear = fiscalYears.find((record) => String(record.id) === String(selectedFiscalYearId))
     || activeFiscalYear
     || getPayrollFiscalYearRecord();
   const paymentYear = derivePayrollPaymentYear(filters.month, fiscalYear);
   const selectedDepartment = departments.find((department) => String(department.code) === String(filters.deptCode));
   const departmentOptions = [{ code: "999", department: "All Departments" }, ...departments];
+  const historyRows = runs.filter((run) => {
+    const search = historyFilters.search.trim().toLowerCase();
+    const statusFilter = String(historyFilters.status || "all").toLowerCase();
+    const statusMatch = statusFilter === "all" || String(run.status || "").toLowerCase() === statusFilter;
+
+    if (!statusMatch) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    const haystack = [
+      run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
+      run.fiscalYearName,
+      run.deptCode,
+      run.status,
+      run.employeeCount,
+      run.totalGross,
+      run.totalDeductions,
+      run.totalNet,
+      run.journalReferenceNo,
+      run.reversalJournalReferenceNo
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(search);
+  });
 
   const loadRuns = async (nextFilters = filters) => {
     const data = await getPayrollRuns(nextFilters);
@@ -8185,10 +8218,17 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
     if (!runId) return;
 
+    await reopenRunById(runId);
+  };
+
+  const reopenRunById = async (runId) => {
+    if (!runId) return;
+
     try {
       await reopenPayrollRun(runId);
       setResult(null);
       setStatus({ type: "success", message: "Payroll run reopened. You can process it again." });
+      await loadRuns();
       await loadCurrentPeriod();
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -8197,6 +8237,12 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
 
   const voidCurrentRun = async () => {
     const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
+    if (!runId) return;
+
+    await voidRunById(runId);
+  };
+
+  const voidRunById = async (runId) => {
     if (!runId) return;
 
     if (!window.confirm("This will void the payroll run and create a reversal journal entry. Continue?")) {
@@ -8212,6 +8258,37 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
+  };
+
+  const viewRunHistory = async (runId) => {
+    setLoadingRunId(runId);
+    try {
+      const response = await getPayrollRun(runId);
+      setResult(normalizePayrollRun(response.data));
+      setStatus({ type: "neutral", message: "Payroll run loaded from history." });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoadingRunId(null);
+    }
+  };
+
+  const exportHistory = () => {
+    const rows = historyRows.map((run) => ({
+      Month: run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
+      "Fiscal Year": run.fiscalYearName || "",
+      Department: run.deptCode || "",
+      Status: run.status || "",
+      Employees: run.employeeCount || 0,
+      Gross: Number(run.totalGross || 0),
+      Deductions: Number(run.totalDeductions || 0),
+      Net: Number(run.totalNet || 0),
+      Journal: run.journalReferenceNo || "",
+      Reversal: run.reversalJournalReferenceNo || "",
+      "Processed At": run.processedAt || ""
+    }));
+
+    exportRowsToExcel(rows, `payroll-run-history-${filters.month || "all"}-${filters.year || "all"}.xlsx`);
   };
 
   const goBack = () => {
@@ -8311,6 +8388,97 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
           <button type="button" onClick={voidCurrentRun}>Void / Delete</button>
         </div>
       ) : null}
+      <section className="employee-entry-panel payroll-history-panel no-print" aria-label="Payroll run history">
+        <div className="form-title-row">
+          <div>
+            <p>Payroll</p>
+            <h2>Payroll Run History</h2>
+          </div>
+          <div className="salary-run-actions">
+            <span>{historyRows.length} run{historyRows.length === 1 ? "" : "s"}</span>
+            <button type="button" onClick={exportHistory} disabled={!historyRows.length}>Export</button>
+          </div>
+        </div>
+        <div className="report-filter-panel no-print">
+          <label>
+            <span>Search</span>
+            <input
+              type="search"
+              placeholder="Month, fiscal year, dept, status, journal..."
+              value={historyFilters.search}
+              onChange={(event) => setHistoryFilters((current) => ({ ...current, search: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Status</span>
+            <select
+              value={historyFilters.status}
+              onChange={(event) => setHistoryFilters((current) => ({ ...current, status: event.target.value }))}
+            >
+              <option value="all">All</option>
+              <option value="draft">Draft</option>
+              <option value="processed">Processed</option>
+              <option value="locked">Locked</option>
+              <option value="void">Void</option>
+            </select>
+          </label>
+        </div>
+        <div className="table-wrap">
+          <table className="employee-table payroll-history-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Fiscal Year</th>
+                <th>Dept</th>
+                <th>Status</th>
+                <th>Employees</th>
+                <th>Gross</th>
+                <th>Deductions</th>
+                <th>Net</th>
+                <th>Journal</th>
+                <th>Reversal</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyRows.map((run) => (
+                <tr key={run.id}>
+                  <td>{String(run.paymentMonth).padStart(2, "0")}/{run.paymentYear}</td>
+                  <td>{run.fiscalYearName || "-"}</td>
+                  <td>{run.deptCode}</td>
+                  <td>
+                    <span className="employee-status-pill neutral">{run.status}</span>
+                  </td>
+                  <td>{run.employeeCount || 0}</td>
+                  <td className="amount-cell">{formatCurrency(run.totalGross)}</td>
+                  <td className="amount-cell">{formatCurrency(run.totalDeductions)}</td>
+                  <td className="amount-cell">{formatCurrency(run.totalNet)}</td>
+                  <td>{run.journalReferenceNo || "-"}</td>
+                  <td>{run.reversalJournalReferenceNo || "-"}</td>
+                  <td>
+                    <div className="salary-run-actions">
+                      <button type="button" onClick={() => viewRunHistory(run.id)} disabled={loadingRunId === run.id}>
+                        {loadingRunId === run.id ? "Loading..." : "View"}
+                      </button>
+                      {["processed", "locked"].includes(String(run.status)) ? (
+                        <>
+                          <button type="button" onClick={() => reopenRunById(run.id)}>Reopen</button>
+                          <button type="button" onClick={() => voidRunById(run.id)}>Void</button>
+                        </>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!historyRows.length ? (
+                <tr>
+                  <td colSpan="11">No payroll runs found.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
       {result ? <PayrollCalculationResults result={result} filters={filters} /> : null}
     </section>
   );

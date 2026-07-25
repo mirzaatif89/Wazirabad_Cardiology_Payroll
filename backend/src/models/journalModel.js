@@ -252,9 +252,10 @@ export async function getJournalEntryByPayrollRun(payrollRunId, connection = poo
         je.updated_at AS updatedAt
       FROM journal_entries je
       WHERE je.payroll_run_id = ?
+        OR (je.source_type = 'payroll_run' AND je.source_id = ?)
       LIMIT 1
     `,
-    [payrollRunId]
+    [payrollRunId, payrollRunId]
   );
 
   if (!entry) {

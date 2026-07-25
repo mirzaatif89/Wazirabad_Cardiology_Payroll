@@ -634,6 +634,14 @@ export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = 
         fy.name AS fiscalYearName,
         fy.start_date AS fiscalYearStartDate,
         fy.end_date AS fiscalYearEndDate,
+        jorig.id AS journalId,
+        jorig.reference_no AS journalReferenceNo,
+        jorig.status AS journalStatus,
+        jorig.posted_by AS journalPostedBy,
+        jrev.id AS reversalJournalId,
+        jrev.reference_no AS reversalJournalReferenceNo,
+        jrev.status AS reversalJournalStatus,
+        jrev.posted_by AS reversalJournalPostedBy,
         COUNT(pri.id) AS employeeCount,
         COALESCE(SUM(pri.gross_pay), 0) AS totalGross,
         COALESCE(SUM(pri.total_deductions), 0) AS totalDeductions,
@@ -641,10 +649,16 @@ export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = 
       FROM payroll_runs pr
       LEFT JOIN payroll_run_items pri ON pri.payroll_run_id = pr.id
       LEFT JOIN fiscal_years fy ON fy.id = pr.fiscal_year_id
+      LEFT JOIN journal_entries jorig
+        ON jorig.source_type = 'payroll_run'
+       AND jorig.source_id = pr.id
+      LEFT JOIN journal_entries jrev
+        ON jrev.source_type = 'payroll_run_reversal'
+       AND jrev.source_id = jorig.id
       WHERE (? = '' OR pr.payment_month = ?)
         AND (? = '' OR pr.payment_year = ?)
         AND (? = '' OR pr.dept_code = ?)
-      GROUP BY pr.id, pr.fiscal_year_id, fy.name, fy.start_date, fy.end_date
+      GROUP BY pr.id, pr.fiscal_year_id, fy.name, fy.start_date, fy.end_date, jorig.id, jorig.reference_no, jorig.status, jorig.posted_by, jrev.id, jrev.reference_no, jrev.status, jrev.posted_by
       ORDER BY pr.payment_year DESC, pr.payment_month DESC, pr.dept_code ASC
     `,
     [month, month, year, year, deptCode, deptCode]
