@@ -185,6 +185,14 @@ export async function deleteFiscalYear(req, res) {
       message: "Fiscal year deleted successfully."
     });
   } catch (error) {
+    if (error.code === "FISCAL_YEAR_IN_USE") {
+      return res.status(409).json({
+        success: false,
+        data: null,
+        message: error.message
+      });
+    }
+
     console.error("Fiscal year delete failed:", error);
     return res.status(500).json({
       success: false,

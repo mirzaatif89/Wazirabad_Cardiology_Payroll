@@ -29,5 +29,9 @@ export const env = {
   },
   payrollLedgerDefaults: {
     salaryPayableAccountCode: process.env.PAYROLL_SALARY_PAYABLE_ACCOUNT_CODE || "L03001"
+  },
+  arrearLedgerDefaults: {
+    arrearExpenseAccountCode: process.env.ARREAR_EXPENSE_ACCOUNT_CODE || "E03001",
+    salaryPayableAccountCode: process.env.ARREAR_SALARY_PAYABLE_ACCOUNT_CODE || process.env.PAYROLL_SALARY_PAYABLE_ACCOUNT_CODE || "L03001"
   }
 };

@@ -296,6 +296,32 @@ export async function deleteFiscalYearById(id) {
       return 0;
     }
 
+    const [[payrollUsage]] = await connection.query(
+      "SELECT COUNT(*) AS count FROM payroll_runs WHERE fiscal_year_id = ?",
+      [id]
+    );
+    const [[taxPolicyUsage]] = await connection.query(
+      "SELECT COUNT(*) AS count FROM tax_policies WHERE fiscal_year_id = ?",
+      [id]
+    );
+    const [[journalUsage]] = await connection.query(
+      "SELECT COUNT(*) AS count FROM journal_entries WHERE fiscal_year_id = ?",
+      [id]
+    );
+
+    const linkedCount =
+      Number(payrollUsage?.count || 0) +
+      Number(taxPolicyUsage?.count || 0) +
+      Number(journalUsage?.count || 0);
+
+    if (linkedCount > 0) {
+      const error = new Error(
+        "Fiscal year cannot be deleted because it is linked to payroll, tax policy, or journal records."
+      );
+      error.code = "FISCAL_YEAR_IN_USE";
+      throw error;
+    }
+
     const [result] = await connection.query("DELETE FROM fiscal_years WHERE id = ?", [id]);
 
     if (existing.isActive) {

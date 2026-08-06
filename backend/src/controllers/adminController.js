@@ -2,11 +2,14 @@ import { pool } from "../config/database.js";
 import { verifyAdminPassword } from "../models/authModel.js";
 
 const RESET_TABLES = [
+  "journal_entry_lines",
+  "journal_entries",
   "payroll_run_item_details",
   "payroll_run_items",
   "payroll_runs",
   "budget_transaction_items",
   "budget_transactions",
+  "arrear_payments",
   "arrear_bill_items",
   "arrear_bills",
   "special_pay_entries",

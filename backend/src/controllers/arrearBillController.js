@@ -211,10 +211,21 @@ export async function finalizeBill(req, res) {
       return res.status(409).json({ success: false, data: null, message: "Only draft arrear bills can be finalized." });
     }
 
+    const bill = await getArrearBillById(req.params.id);
+    if (bill) {
+      await logAuditAction({
+        action: "finalize",
+        documentType: "arrear",
+        documentNo: bill.documentNo,
+        performedBy: req.body?.performedBy || "Hospital Admin",
+        notes: "Finalized arrear bill and posted journal entry."
+      });
+    }
+
     return res.json({
       success: true,
-      data: await getArrearBillById(req.params.id),
-      message: "Arrear bill finalized successfully."
+      data: bill,
+      message: "Arrear bill finalized successfully and posted to accounts."
     });
   } catch (error) {
     console.error("Arrear bill finalize failed:", error);
@@ -232,6 +243,14 @@ export async function reopenBill(req, res) {
 
     if (result.status === "not_finalized") {
       return res.status(409).json({ success: false, data: null, message: "Only finalized arrear bills can be reopened." });
+    }
+
+    if (result.status === "has_payments") {
+      return res.status(409).json({
+        success: false,
+        data: null,
+        message: "This arrear bill already has posted payments. Reverse the payment first."
+      });
     }
 
     await logAuditAction({
@@ -254,7 +273,11 @@ export async function updateBillStatus(req, res) {
     const result = await updateArrearBillStatusById(req.params.id, req.body?.status);
 
     if (result.status === "invalid") {
-      return res.status(400).json({ success: false, data: null, message: "Status must be draft, finalized, or cancelled." });
+      return res.status(400).json({
+        success: false,
+        data: null,
+        message: "Status must be draft, finalized, partially_paid, paid, or cancelled."
+      });
     }
 
     if (result.status === "not_found") {

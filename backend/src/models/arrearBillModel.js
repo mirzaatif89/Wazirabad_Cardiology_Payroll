@@ -1,4 +1,6 @@
 import { pool } from "../config/database.js";
+import { getActiveFiscalYear, getFiscalYearForDate } from "./fiscalYearModel.js";
+import { createArrearJournalEntry, reverseArrearJournalEntryByBillId } from "./journalModel.js";
 
 const editableStatuses = new Set(["draft"]);
 
@@ -8,6 +10,7 @@ export async function ensureArrearBillTables() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       document_no INT UNIQUE NOT NULL,
       bill_date DATE NOT NULL,
+      fiscal_year_id INT NULL,
       place_of_posting VARCHAR(100) DEFAULT 'Hospital',
       employee_code VARCHAR(50) NOT NULL,
       total_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
@@ -16,9 +19,39 @@ export async function ensureArrearBillTables() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       CONSTRAINT fk_arrear_bills_employee
         FOREIGN KEY (employee_code) REFERENCES employees(employee_no)
-        ON UPDATE CASCADE
+        ON UPDATE CASCADE,
+      CONSTRAINT fk_arrear_bills_fiscal_year
+        FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id)
+        ON DELETE SET NULL
     )
   `);
+
+  await pool.query("ALTER TABLE arrear_bills MODIFY status ENUM('draft','finalized','partially_paid','paid','cancelled') DEFAULT 'draft'");
+
+  const [fiscalYearColumns] = await pool.query("SHOW COLUMNS FROM arrear_bills LIKE 'fiscal_year_id'");
+  if (!fiscalYearColumns.length) {
+    await pool.query("ALTER TABLE arrear_bills ADD COLUMN fiscal_year_id INT NULL AFTER bill_date");
+  }
+
+  const [fiscalYearConstraint] = await pool.query(
+    `
+      SELECT CONSTRAINT_NAME
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'arrear_bills'
+        AND CONSTRAINT_NAME = 'fk_arrear_bills_fiscal_year'
+      LIMIT 1
+    `
+  );
+
+  if (!fiscalYearConstraint.length) {
+    await pool.query(`
+      ALTER TABLE arrear_bills
+      ADD CONSTRAINT fk_arrear_bills_fiscal_year
+      FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id)
+      ON DELETE SET NULL
+    `);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS arrear_bill_items (
@@ -40,6 +73,16 @@ export async function ensureArrearBillTables() {
         ON UPDATE CASCADE
     )
   `);
+}
+
+async function resolveFiscalYearIdForDate(targetDate, connection = pool) {
+  const fiscalYear = await getFiscalYearForDate(targetDate, connection);
+  if (fiscalYear?.id) {
+    return fiscalYear.id;
+  }
+
+  const activeFiscalYear = await getActiveFiscalYear(connection);
+  return activeFiscalYear?.id || null;
 }
 
 export async function getNextDocumentNo(connection = pool) {
@@ -82,6 +125,8 @@ export async function getArrearBills({ employeeCode = "", dateFrom = "", dateTo 
         ab.id,
         ab.document_no AS documentNo,
         DATE_FORMAT(ab.bill_date, '%Y-%m-%d') AS billDate,
+        ab.fiscal_year_id AS fiscalYearId,
+        fy.name AS fiscalYearName,
         ab.place_of_posting AS placeOfPosting,
         ab.employee_code AS employeeCode,
         e.name AS employeeName,
@@ -90,6 +135,7 @@ export async function getArrearBills({ employeeCode = "", dateFrom = "", dateTo 
         ab.created_at AS createdAt
       FROM arrear_bills ab
       INNER JOIN employees e ON e.employee_no = ab.employee_code
+      LEFT JOIN fiscal_years fy ON fy.id = ab.fiscal_year_id
       ${whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : ""}
       ORDER BY ab.document_no DESC
     `,
@@ -106,6 +152,8 @@ export async function getArrearBillById(id) {
         ab.id,
         ab.document_no AS documentNo,
         DATE_FORMAT(ab.bill_date, '%Y-%m-%d') AS billDate,
+        ab.fiscal_year_id AS fiscalYearId,
+        fy.name AS fiscalYearName,
         ab.place_of_posting AS placeOfPosting,
         ab.employee_code AS employeeCode,
         e.name AS employeeName,
@@ -114,6 +162,7 @@ export async function getArrearBillById(id) {
         ab.created_at AS createdAt
       FROM arrear_bills ab
       INNER JOIN employees e ON e.employee_no = ab.employee_code
+      LEFT JOIN fiscal_years fy ON fy.id = ab.fiscal_year_id
       WHERE ab.id = ?
       LIMIT 1
     `,
@@ -295,6 +344,7 @@ export async function createArrearBill(payload) {
   const connection = await pool.getConnection();
   const items = normalizeArrearItems(payload.items);
   const totalAmount = items.reduce((total, item) => total + item.amount, 0);
+  const fiscalYearId = await resolveFiscalYearIdForDate(payload.billDate, connection);
 
   try {
     await connection.beginTransaction();
@@ -305,14 +355,16 @@ export async function createArrearBill(payload) {
         INSERT INTO arrear_bills (
           document_no,
           bill_date,
+          fiscal_year_id,
           place_of_posting,
           employee_code,
           total_amount
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `,
       [
         documentNo,
         payload.billDate,
+        fiscalYearId,
         payload.placeOfPosting || "Hospital",
         payload.employeeCode,
         totalAmount
@@ -361,6 +413,7 @@ export async function updateArrearBillById(id, payload) {
   const connection = await pool.getConnection();
   const items = normalizeArrearItems(payload.items);
   const totalAmount = items.reduce((total, item) => total + item.amount, 0);
+  const fiscalYearId = await resolveFiscalYearIdForDate(payload.billDate, connection);
 
   try {
     await connection.beginTransaction();
@@ -381,6 +434,7 @@ export async function updateArrearBillById(id, payload) {
       `
         UPDATE arrear_bills
         SET bill_date = ?,
+            fiscal_year_id = ?,
             place_of_posting = ?,
             employee_code = ?,
             total_amount = ?
@@ -388,6 +442,7 @@ export async function updateArrearBillById(id, payload) {
       `,
       [
         payload.billDate,
+        fiscalYearId,
         payload.placeOfPosting || "Hospital",
         payload.employeeCode,
         totalAmount,
@@ -422,56 +477,199 @@ export async function deleteArrearBillById(id) {
 }
 
 export async function finalizeArrearBillById(id) {
-  const [result] = await pool.query(
-    "UPDATE arrear_bills SET status = 'finalized' WHERE id = ? AND status = 'draft'",
-    [id]
-  );
+  const connection = await pool.getConnection();
 
-  if (!result.affectedRows) {
-    const [[existingBill]] = await pool.query("SELECT id, status FROM arrear_bills WHERE id = ? LIMIT 1", [id]);
-    return existingBill ? "locked" : "not_found";
+  try {
+    await connection.beginTransaction();
+
+    const [[existingBill]] = await connection.query(
+      `
+        SELECT
+          ab.id,
+          ab.document_no AS documentNo,
+          ab.bill_date AS billDate,
+          ab.fiscal_year_id AS fiscalYearId,
+          ab.employee_code AS employeeCode,
+          ab.total_amount AS totalAmount,
+          ab.status
+        FROM arrear_bills ab
+        WHERE ab.id = ?
+        LIMIT 1
+      `,
+      [id]
+    );
+
+    if (!existingBill) {
+      await connection.rollback();
+      return "not_found";
+    }
+
+    if (existingBill.status !== "draft") {
+      await connection.rollback();
+      return "locked";
+    }
+
+    const journal = await createArrearJournalEntry({
+      connection,
+      arrearBillId: existingBill.id,
+      fiscalYearId: existingBill.fiscalYearId,
+      billDate: existingBill.billDate,
+      employeeCode: existingBill.employeeCode,
+      documentNo: existingBill.documentNo,
+      totalAmount: existingBill.totalAmount,
+      postedBy: "Hospital Admin"
+    });
+
+    if (!journal) {
+      await connection.rollback();
+      return "locked";
+    }
+
+    const [result] = await connection.query(
+      "UPDATE arrear_bills SET status = 'finalized' WHERE id = ? AND status = 'draft'",
+      [id]
+    );
+
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return "locked";
+    }
+
+    await connection.commit();
+    return "finalized";
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  return "finalized";
 }
 
 export async function reopenArrearBillById(id) {
-  const [[existingBill]] = await pool.query(
-    "SELECT id, document_no AS documentNo, status FROM arrear_bills WHERE id = ? LIMIT 1",
-    [id]
-  );
+  const connection = await pool.getConnection();
 
-  if (!existingBill) {
-    return { status: "not_found" };
+  try {
+    await connection.beginTransaction();
+
+    const [[existingBill]] = await connection.query(
+      "SELECT id, document_no AS documentNo, status FROM arrear_bills WHERE id = ? LIMIT 1",
+      [id]
+    );
+
+    if (!existingBill) {
+      await connection.rollback();
+      return { status: "not_found" };
+    }
+
+    if (existingBill.status !== "finalized") {
+      await connection.rollback();
+      return { status: "not_finalized", documentNo: existingBill.documentNo };
+    }
+
+    const [[paymentUsage]] = await connection.query(
+      `
+        SELECT COALESCE(SUM(CASE WHEN status = 'posted' THEN 1 ELSE 0 END), 0) AS count
+        FROM arrear_payments
+        WHERE arrear_bill_id = ?
+      `,
+      [id]
+    );
+
+    if (Number(paymentUsage?.count || 0) > 0) {
+      await connection.rollback();
+      return { status: "has_payments", documentNo: existingBill.documentNo };
+    }
+
+    await reverseArrearJournalEntryByBillId(id, connection, "Hospital Admin");
+    await connection.query("UPDATE arrear_bills SET status = 'draft' WHERE id = ?", [id]);
+    await connection.commit();
+
+    return { status: "reopened", documentNo: existingBill.documentNo, bill: await getArrearBillById(id) };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  if (existingBill.status !== "finalized") {
-    return { status: "not_finalized", documentNo: existingBill.documentNo };
-  }
-
-  await pool.query("UPDATE arrear_bills SET status = 'draft' WHERE id = ?", [id]);
-  return { status: "reopened", documentNo: existingBill.documentNo, bill: await getArrearBillById(id) };
 }
 
 export async function updateArrearBillStatusById(id, nextStatus) {
-  if (!["draft", "finalized", "cancelled"].includes(nextStatus)) {
+  if (!["draft", "finalized", "partially_paid", "paid", "cancelled"].includes(nextStatus)) {
     return { status: "invalid" };
   }
 
-  const [[existingBill]] = await pool.query(
-    "SELECT id, document_no AS documentNo, status FROM arrear_bills WHERE id = ? LIMIT 1",
-    [id]
-  );
+  const connection = await pool.getConnection();
 
-  if (!existingBill) {
-    return { status: "not_found" };
+  try {
+    await connection.beginTransaction();
+
+    const [[existingBill]] = await connection.query(
+      `
+        SELECT
+          ab.id,
+          ab.document_no AS documentNo,
+          ab.bill_date AS billDate,
+          ab.fiscal_year_id AS fiscalYearId,
+          ab.employee_code AS employeeCode,
+          ab.total_amount AS totalAmount,
+          ab.status
+        FROM arrear_bills ab
+        WHERE ab.id = ?
+        LIMIT 1
+      `,
+      [id]
+    );
+
+    if (!existingBill) {
+      await connection.rollback();
+      return { status: "not_found" };
+    }
+
+    if (existingBill.status === nextStatus) {
+      await connection.rollback();
+      return {
+        status: "updated",
+        previousStatus: existingBill.status,
+        documentNo: existingBill.documentNo,
+        bill: await getArrearBillById(id)
+      };
+    }
+
+    if (existingBill.status === "draft" && nextStatus === "finalized") {
+      const journal = await createArrearJournalEntry({
+        connection,
+        arrearBillId: id,
+        fiscalYearId: existingBill.fiscalYearId,
+        billDate: existingBill.billDate,
+        employeeCode: existingBill.employeeCode,
+        documentNo: existingBill.documentNo,
+        totalAmount: existingBill.totalAmount,
+        postedBy: "Hospital Admin"
+      });
+
+      if (!journal) {
+        await connection.rollback();
+        return { status: "locked" };
+      }
+    }
+
+    if (existingBill.status === "finalized" && nextStatus !== "finalized") {
+      await reverseArrearJournalEntryByBillId(id, connection, "Hospital Admin");
+    }
+
+    await connection.query("UPDATE arrear_bills SET status = ? WHERE id = ?", [nextStatus, id]);
+    await connection.commit();
+
+    return {
+      status: "updated",
+      previousStatus: existingBill.status,
+      documentNo: existingBill.documentNo,
+      bill: await getArrearBillById(id)
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  await pool.query("UPDATE arrear_bills SET status = ? WHERE id = ?", [nextStatus, id]);
-  return {
-    status: "updated",
-    previousStatus: existingBill.status,
-    documentNo: existingBill.documentNo,
-    bill: await getArrearBillById(id)
-  };
 }

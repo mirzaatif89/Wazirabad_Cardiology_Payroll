@@ -45,6 +45,7 @@ import {
   getArrearBill,
   getArrearBillReport,
   getArrearBills,
+  getArrearPayments,
   getAccountCodes,
   getBudgetSummary,
   getBudgetTransaction,
@@ -57,10 +58,12 @@ import {
   getEmployeeByCode,
   getEmployees,
   getNextEmployeeNo,
+  getNextArrearPaymentNo,
   getDepartments,
   getDesignations,
   getAllowancesExport,
   getWageCodes,
+  getPayableArrearBills,
   getNextArrearDocumentNo,
   getNextBudgetDocumentNo,
   getDocumentByNumber,
@@ -76,6 +79,8 @@ import {
   getSpecialPay,
   getTaxScheduleExport,
   printCheque,
+  createArrearPayment,
+  reverseArrearPayment,
   applyAnnualIncrement,
   applyFixedAllowance,
   applyPercentAllowance,
@@ -166,6 +171,75 @@ const newEmployeeFields = [
   { label: "SAP #", name: "sapNo" },
   { label: "Stop Date", name: "stopDate", type: "date" }
 ];
+
+const newEmployeeFieldMap = Object.fromEntries(newEmployeeFields.map((field) => [field.name, field]));
+
+const employeeFormSections = [
+  {
+    title: "Personal Details",
+    description: "Identity and contact information for the employee record.",
+    fields: ["employeeNo", "name", "fatherName", "dateOfBirth", "email", "contactNo", "cnicNo", "address", "oldPersonnelNo", "placeOfPosting"]
+  },
+  {
+    title: "Employment Details",
+    description: "Current designation, grade, department, and pay status.",
+    fields: ["designationCode", "designation", "bps", "gazNg", "dateOfJoining", "departmentCode", "department", "serviceType", "stopDate"]
+  },
+  {
+    title: "Employee Tax Panel",
+    description: "Maintain tax onboarding fields here so payroll calculations can use one consistent source.",
+    fields: ["priorEmployerTaxCredit", "ntnNo"]
+  },
+  {
+    title: "Banking And Payroll References",
+    description: "Bank, account, and payroll reference details used during salary processing.",
+    fields: ["bankCode", "bank", "bankBranchCode", "bankBranch", "accountNo", "gpfAccountNo", "pghsfNo", "religion", "sapNo"]
+  }
+];
+
+function EmployeeFormField({ field, value, onChange, onKeyDown, onGenerateEmployeeNo, required = false, className = "", children }) {
+  const wrapperClassName = [field.wide ? "wide-field" : "", className].filter(Boolean).join(" ");
+
+  return (
+    <label className={wrapperClassName}>
+      <span>{field.label}</span>
+      {field.type === "select" ? (
+        <select name={field.name} value={value} onChange={onChange}>
+          <option value="">Select</option>
+          {field.options.map((option) => (
+            <option value={option} key={option}>{option}</option>
+          ))}
+        </select>
+      ) : field.name === "employeeNo" && onGenerateEmployeeNo ? (
+        <div className="employee-no-row">
+          <input
+            name={field.name}
+            type={field.type || "text"}
+            value={value}
+            onChange={onChange}
+            readOnly={field.readOnly}
+            required={required}
+          />
+          <button type="button" onClick={onGenerateEmployeeNo}>
+            Generate
+          </button>
+        </div>
+      ) : (
+        <input
+          name={field.name}
+          type={field.type || "text"}
+          value={value}
+          onChange={onChange}
+          onKeyDown={onKeyDown}
+          readOnly={field.readOnly}
+          required={required}
+          placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
+        />
+      )}
+      {children}
+    </label>
+  );
+}
 
 function findDepartmentByCode(departments, code) {
   const cleanCode = code.trim().toLowerCase();
@@ -340,6 +414,26 @@ function getActiveFiscalYearRange() {
     startYear: String(startDate.getFullYear()),
     endMonth: String(endDate.getMonth() + 1),
     endYear: String(endDate.getFullYear())
+  };
+}
+
+function getFiscalYearRangeFields(fiscalYear) {
+  if (!fiscalYear?.startDate || !fiscalYear?.endDate) {
+    return null;
+  }
+
+  const startDate = new Date(fiscalYear.startDate);
+  const endDate = new Date(fiscalYear.endDate);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  return {
+    fromMonth: String(startDate.getMonth() + 1),
+    fromYear: String(startDate.getFullYear()),
+    toMonth: String(endDate.getMonth() + 1),
+    toYear: String(endDate.getFullYear())
   };
 }
 
@@ -623,49 +717,31 @@ function NewEmployeeEntryForm({ onSaved }) {
       </div>
 
       <form className="employee-form" onSubmit={handleSubmit} onReset={handleReset}>
-        {newEmployeeFields.map((field) => (
-          <label className={field.wide ? "wide-field" : ""} key={field.name}>
-            <span>{field.label}</span>
-            {field.type === "select" ? (
-              <select
-                name={field.name}
-                value={form[field.name]}
-                onChange={updateField}
-              >
-                <option value="">Select</option>
-                {field.options.map((option) => (
-                  <option value={option} key={option}>{option}</option>
-                ))}
-              </select>
-            ) : (
-              field.name === "employeeNo" ? (
-                <div className="employee-no-row">
-                  <input
-                    name={field.name}
-                    type={field.type || "text"}
+        {employeeFormSections.map((section) => (
+          <fieldset className="employee-form-section" key={section.title}>
+            <legend>{section.title}</legend>
+            {section.description ? <p className="employee-form-section-note">{section.description}</p> : null}
+            <div className="employee-form-grid">
+              {section.fields.map((fieldName) => {
+                const field = newEmployeeFieldMap[fieldName];
+                if (!field) {
+                  return null;
+                }
+
+                return (
+                  <EmployeeFormField
+                    key={field.name}
+                    field={field}
                     value={form[field.name]}
                     onChange={updateField}
-                    readOnly={field.readOnly}
-                    required
+                    onKeyDown={(event) => handleCodeFieldKeyDown(event, field.name)}
+                    onGenerateEmployeeNo={field.name === "employeeNo" ? handleGenerateEmployeeNo : null}
+                    required={field.name === "employeeNo" || field.name === "name"}
                   />
-                  <button type="button" onClick={handleGenerateEmployeeNo}>
-                    Generate
-                  </button>
-                </div>
-              ) : (
-                <input
-                  name={field.name}
-                  type={field.type || "text"}
-                  value={form[field.name]}
-                  onChange={updateField}
-                  onKeyDown={(event) => handleCodeFieldKeyDown(event, field.name)}
-                  readOnly={field.readOnly}
-                  required={field.name === "name"}
-                  placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
-                />
-              )
-            )}
-          </label>
+                );
+              })}
+            </div>
+          </fieldset>
         ))}
 
         {departmentStatus ? (
@@ -1133,64 +1209,57 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
             <h3>Edit Employee Information</h3>
             <button type="button" onClick={cancelEdit}>Close</button>
           </div>
-          {newEmployeeFields.map((field) => (
-            <label
-              className={[
-                field.wide ? "wide-field" : "",
-                field.name === "stopDate" ? "stop-date-pay-field" : ""
-              ].filter(Boolean).join(" ")}
-              key={field.name}
-            >
-              <span>{field.label}</span>
-              {field.type === "select" ? (
-                <select
-                  name={field.name}
-                  value={editForm[field.name]}
-                  onChange={updateEditField}
-                >
-                  <option value="">Select</option>
-                  {field.options.map((option) => (
-                    <option value={option} key={option}>{option}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  name={field.name}
-                  type={field.type || "text"}
-                  value={editForm[field.name]}
-                  onChange={updateEditField}
-                  onKeyDown={(event) => handleEditCodeFieldKeyDown(event, field.name)}
-                  readOnly={field.readOnly}
-                  required={field.name === "employeeNo" || field.name === "name"}
-                  placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
-                />
-              )}
-              {field.name === "stopDate" ? (
-                <fieldset className="pay-status-toggle">
-                  <legend>Pay Status</legend>
-                  <label>
-                    <input
-                      type="radio"
-                      name="payStatus"
-                      value="active"
-                      checked={(editForm.status || "active") === "active"}
-                      onChange={() => updateEditPayStatus("active")}
-                    />
-                    <span>Pay Active</span>
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="payStatus"
-                      value="inactive"
-                      checked={(editForm.status || "active") === "inactive"}
-                      onChange={() => updateEditPayStatus("inactive")}
-                    />
-                    <span>Pay Stop</span>
-                  </label>
-                </fieldset>
-              ) : null}
-            </label>
+          {employeeFormSections.map((section) => (
+            <fieldset className="employee-form-section" key={section.title}>
+              <legend>{section.title}</legend>
+              {section.description ? <p className="employee-form-section-note">{section.description}</p> : null}
+              <div className="employee-form-grid">
+                {section.fields.map((fieldName) => {
+                  const field = newEmployeeFieldMap[fieldName];
+                  if (!field) {
+                    return null;
+                  }
+
+                  return (
+                    <EmployeeFormField
+                      key={field.name}
+                      field={field}
+                      value={editForm[field.name]}
+                      onChange={updateEditField}
+                      onKeyDown={(event) => handleEditCodeFieldKeyDown(event, field.name)}
+                      required={field.name === "employeeNo" || field.name === "name"}
+                      className={field.name === "stopDate" ? "stop-date-pay-field" : ""}
+                    >
+                      {field.name === "stopDate" ? (
+                        <fieldset className="pay-status-toggle">
+                          <legend>Pay Status</legend>
+                          <label>
+                            <input
+                              type="radio"
+                              name="payStatus"
+                              value="active"
+                              checked={(editForm.status || "active") === "active"}
+                              onChange={() => updateEditPayStatus("active")}
+                            />
+                            <span>Pay Active</span>
+                          </label>
+                          <label>
+                            <input
+                              type="radio"
+                              name="payStatus"
+                              value="inactive"
+                              checked={(editForm.status || "active") === "inactive"}
+                              onChange={() => updateEditPayStatus("inactive")}
+                            />
+                            <span>Pay Stop</span>
+                          </label>
+                        </fieldset>
+                      ) : null}
+                    </EmployeeFormField>
+                  );
+                })}
+              </div>
+            </fieldset>
           ))}
           <div className="form-actions">
             <button type="button" onClick={cancelEdit}>Cancel</button>
@@ -5430,6 +5499,306 @@ function ReportLetterhead({ title, filterSummary }) {
   );
 }
 
+function ArrearPaymentPage() {
+  const today = new Date().toISOString().slice(0, 10);
+  const emptyForm = {
+    paymentNo: "",
+    paymentDate: today,
+    arrearBillId: "",
+    paymentMode: "bank",
+    paymentAccountCode: "",
+    referenceNo: "",
+    amount: "",
+    notes: ""
+  };
+
+  const [form, setForm] = useState(emptyForm);
+  const [billOptions, setBillOptions] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [toast, setToast] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const selectedBill = billOptions.find((bill) => String(bill.id) === String(form.arrearBillId)) || null;
+  const outstandingAmount = selectedBill ? Number(selectedBill.balanceAmount || 0) : 0;
+
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    window.setTimeout(() => setToast({ type: "", message: "" }), 2600);
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "Loading arrear payments..." });
+
+    try {
+      const [nextPayment, billsResult, paymentsResult, accountRecords] = await Promise.all([
+        getNextArrearPaymentNo(),
+        getPayableArrearBills(),
+        getArrearPayments(),
+        getChartOfAccounts()
+      ]);
+
+      const billRecords = billsResult.data || [];
+      const paymentRecords = paymentsResult.data || [];
+      const accountList = accountRecords || [];
+
+      setBillOptions(billRecords);
+      setPayments(paymentRecords);
+      setAccounts(accountList);
+      setForm((current) => ({
+        ...current,
+        paymentNo: nextPayment.data.paymentNo,
+        arrearBillId: current.arrearBillId || billRecords[0]?.id || "",
+        amount: current.amount || String(Number(billRecords[0]?.balanceAmount || 0).toFixed(2))
+      }));
+      setStatus({
+        type: "",
+        message: `${billRecords.length} bill(s) payable, ${paymentRecords.length} payment(s) loaded.`
+      });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setForm({
+      ...emptyForm,
+      paymentNo: form.paymentNo || ""
+    });
+  };
+
+  const handleBillChange = (event) => {
+    const arrearBillId = event.target.value;
+    const nextBill = billOptions.find((bill) => String(bill.id) === String(arrearBillId));
+    setForm((current) => ({
+      ...current,
+      arrearBillId,
+      amount: nextBill ? Number(nextBill.balanceAmount || 0).toFixed(2) : current.amount,
+      paymentAccountCode: current.paymentAccountCode || ""
+    }));
+  };
+
+  const submitPayment = async () => {
+    if (!form.arrearBillId) {
+      setStatus({ type: "error", message: "Select an arrear bill first." });
+      return;
+    }
+
+    if (!form.paymentDate) {
+      setStatus({ type: "error", message: "Payment date is required." });
+      return;
+    }
+
+    if (!form.paymentAccountCode) {
+      setStatus({ type: "error", message: "Select a payment account." });
+      return;
+    }
+
+    const amount = Number(form.amount || 0);
+    if (amount <= 0) {
+      setStatus({ type: "error", message: "Payment amount must be greater than 0." });
+      return;
+    }
+
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await createArrearPayment({
+        arrearBillId: form.arrearBillId,
+        paymentDate: form.paymentDate,
+        paymentMode: form.paymentMode,
+        paymentAccountCode: form.paymentAccountCode,
+        referenceNo: form.referenceNo,
+        amount,
+        notes: form.notes,
+        paidBy: "Hospital Admin"
+      });
+
+      showToast("success", result.message);
+      await loadData();
+      setForm((current) => ({
+        ...current,
+        paymentNo: result.data?.payment?.paymentNo || current.paymentNo,
+        amount: String(Number(result.data?.billStatus?.balanceAmount || 0).toFixed(2))
+      }));
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+      showToast("error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reversePayment = async (payment) => {
+    if (!window.confirm(`Reverse arrear payment #${payment.paymentNo}?`)) {
+      return;
+    }
+
+    try {
+      const result = await reverseArrearPayment(payment.id);
+      showToast("success", result.message);
+      await loadData();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+      showToast("error", error.message);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  return (
+    <section className="employee-entry-panel arrear-entry-panel" aria-label="Arrear payment entry">
+      {toast.message ? <div className={`toast-notice ${toast.type}`}>{toast.message}</div> : null}
+
+      <div className="form-title-row no-print">
+        <div>
+          <p>Arrear Bill</p>
+          <h2>Arrear Payment</h2>
+        </div>
+        <div className="title-actions">
+          <button className="refresh-button" type="button" onClick={loadData} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+
+      <div className="arrear-header-grid">
+        <label>
+          <span>Payment #</span>
+          <input readOnly value={form.paymentNo || ""} />
+        </label>
+        <label>
+          <span>Payment Date</span>
+          <input type="date" value={form.paymentDate} onChange={(event) => setForm((current) => ({ ...current, paymentDate: event.target.value }))} />
+        </label>
+        <label>
+          <span>Arrear Bill</span>
+          <select value={form.arrearBillId} onChange={handleBillChange}>
+            <option value="">Select arrear bill</option>
+            {billOptions.map((bill) => (
+              <option key={bill.id} value={bill.id}>
+                #{bill.documentNo} - {bill.employeeName} - Balance PKR {formatCurrency(bill.balanceAmount)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Bill Status</span>
+          <input readOnly value={selectedBill ? selectedBill.status : ""} />
+        </label>
+        <label>
+          <span>Bill Amount</span>
+          <input readOnly value={selectedBill ? formatCurrency(selectedBill.totalAmount) : ""} />
+        </label>
+        <label>
+          <span>Outstanding</span>
+          <input readOnly value={selectedBill ? formatCurrency(selectedBill.balanceAmount) : ""} />
+        </label>
+        <label>
+          <span>Payment Mode</span>
+          <select value={form.paymentMode} onChange={(event) => setForm((current) => ({ ...current, paymentMode: event.target.value }))}>
+            <option value="bank">Bank</option>
+            <option value="cash">Cash</option>
+          </select>
+        </label>
+        <label>
+          <span>Payment Account</span>
+          <select value={form.paymentAccountCode} onChange={(event) => setForm((current) => ({ ...current, paymentAccountCode: event.target.value }))}>
+            <option value="">Select account</option>
+            {accounts.map((account) => (
+              <option key={account.code} value={account.code}>
+                {account.code} - {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Reference No.</span>
+          <input value={form.referenceNo} onChange={(event) => setForm((current) => ({ ...current, referenceNo: event.target.value }))} placeholder="Cheque / voucher reference" />
+        </label>
+        <label>
+          <span>Amount</span>
+          <input type="number" step="0.01" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
+        </label>
+        <label className="wide-field">
+          <span>Notes</span>
+          <input value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional note" />
+        </label>
+      </div>
+
+      <div className="arrear-footer-row">
+        <button type="button" onClick={submitPayment} disabled={saving || !selectedBill}>
+          {saving ? "Posting..." : "Post Payment"}
+        </button>
+        <button type="button" onClick={resetForm}>Clear</button>
+      </div>
+
+      <div className="arrear-list-section no-print">
+        <div className="form-title-row">
+          <div>
+            <p>Arrear Bill</p>
+            <h2>Payment History</h2>
+          </div>
+          <span>{payments.length} record(s)</span>
+        </div>
+
+        <div className="table-wrap arrear-table-wrap">
+          <table className="department-table arrear-list-table">
+            <thead>
+              <tr>
+                <th>Payment #</th>
+                <th>Bill #</th>
+                <th>Employee</th>
+                <th>Date</th>
+                <th>Mode</th>
+                <th>Account</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.length ? payments.map((payment) => (
+                <tr key={payment.id}>
+                  <td>{payment.paymentNo}</td>
+                  <td>{payment.billNo}</td>
+                  <td>{payment.employeeCode} - {payment.employeeName}</td>
+                  <td>{payment.paymentDate}</td>
+                  <td>{payment.paymentMode}</td>
+                  <td>{payment.paymentAccountCode} - {payment.paymentAccountName}</td>
+                  <td className="amount-cell">{formatCurrency(payment.amount)}</td>
+                  <td>{payment.status}</td>
+                  <td>
+                    <div className="arrear-list-actions">
+                      <button type="button" onClick={() => reversePayment(payment)} disabled={payment.status !== "posted"}>
+                        Reverse
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan="9">No arrear payments found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ArrearLineItemsTable({ items }) {
   return (
     <table className="print-report-table arrear-print-items">
@@ -7828,6 +8197,12 @@ function normalizePayrollPreview(data) {
   };
 }
 
+function formatPayrollPeriodLabel(month, year) {
+  const monthIndex = Number(month) - 1;
+  const monthName = payrollMonthOptions[monthIndex] || String(month || "");
+  return `${String(month || "").padStart(2, "0")}/${year} (${monthName} ${year})`;
+}
+
 function formatTaxSlabRange(slab) {
   if (!slab) {
     return "-";
@@ -8032,6 +8407,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [correctionDialog, setCorrectionDialog] = useState(null);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState(null);
@@ -8161,6 +8537,91 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     });
   };
 
+  const getCorrectionImpactText = (run, action) => {
+    const periodLabel = formatPayrollPeriodLabel(run?.paymentMonth, run?.paymentYear);
+    const journalText = run?.journalReferenceNo
+      ? ` Journal ${run.journalReferenceNo}${run.reversalJournalReferenceNo ? ` already has reversal ${run.reversalJournalReferenceNo}.` : "."}`
+      : " No journal entry is linked yet.";
+
+    if (action === "reprocess") {
+      return `${periodLabel} dept ${run?.deptCode || "999"} will be reopened, the existing journal will be reversed if posted, and the run will return to draft so it can be posted again.${journalText}`;
+    }
+
+    return `${periodLabel} dept ${run?.deptCode || "999"} will be voided and a reversal journal entry will be created if the run was posted.${journalText}`;
+  };
+
+  const openCorrectionDialog = (run, action) => {
+    if (!run) return;
+
+    setCorrectionDialog({
+      run,
+      action,
+      message: getCorrectionImpactText(run, action)
+    });
+  };
+
+  const closeCorrectionDialog = () => {
+    setCorrectionDialog(null);
+  };
+
+  const resolveRunForCorrection = async (runId) => {
+    const historyMatch = runs.find((runItem) => String(runItem.id) === String(runId));
+    if (historyMatch) {
+      return historyMatch;
+    }
+
+    const response = await getPayrollRun(runId);
+    return normalizePayrollRun(response.data);
+  };
+
+  const applyRunCorrection = async () => {
+    if (!correctionDialog?.run) {
+      return;
+    }
+
+    const { run, action } = correctionDialog;
+    setCorrectionDialog(null);
+    setLoading(true);
+    setStatus({ type: "neutral", message: action === "reprocess" ? "Reopening payroll run..." : "Voiding payroll run..." });
+
+    try {
+      if (action === "reprocess") {
+        await reopenPayrollRun(run.id);
+        const reopened = await getPayrollRun(run.id);
+        const normalizedRun = normalizePayrollRun(reopened.data);
+        setDraftRun(normalizedRun);
+        setResult(null);
+        setFilters((current) => ({
+          ...current,
+          month: String(run.paymentMonth),
+          year: String(run.paymentYear),
+          deptCode: String(run.deptCode || "999")
+        }));
+        if (run.fiscalYearId) {
+          setSelectedFiscalYearId(String(run.fiscalYearId));
+        }
+        await loadRuns({
+          month: String(run.paymentMonth),
+          year: String(run.paymentYear),
+          deptCode: String(run.deptCode || "999")
+        });
+        setStatus({ type: "success", message: "Payroll run reopened. Review the period and click Resume to regenerate it." });
+        return;
+      }
+
+      await voidPayrollRun(run.id);
+      setResult(null);
+      setDraftRun(null);
+      await loadRuns();
+      await loadCurrentPeriod();
+      setStatus({ type: "success", message: "Payroll run voided and reversal journal posted." });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const run = async () => {
     if (!filters.month || !filters.year) {
       setStatus({ type: "error", message: "Month and year are required." });
@@ -8218,18 +8679,9 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
     if (!runId) return;
 
-    await reopenRunById(runId);
-  };
-
-  const reopenRunById = async (runId) => {
-    if (!runId) return;
-
     try {
-      await reopenPayrollRun(runId);
-      setResult(null);
-      setStatus({ type: "success", message: "Payroll run reopened. You can process it again." });
-      await loadRuns();
-      await loadCurrentPeriod();
+      const run = await resolveRunForCorrection(runId);
+      openCorrectionDialog(run, "reprocess");
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
@@ -8239,22 +8691,9 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
     if (!runId) return;
 
-    await voidRunById(runId);
-  };
-
-  const voidRunById = async (runId) => {
-    if (!runId) return;
-
-    if (!window.confirm("This will void the payroll run and create a reversal journal entry. Continue?")) {
-      return;
-    }
-
     try {
-      await voidPayrollRun(runId);
-      setResult(null);
-      setStatus({ type: "success", message: "Payroll run voided and reversed. You can process it again." });
-      await loadRuns();
-      await loadCurrentPeriod();
+      const run = await resolveRunForCorrection(runId);
+      openCorrectionDialog(run, "void");
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
@@ -8462,8 +8901,8 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
                       </button>
                       {["processed", "locked"].includes(String(run.status)) ? (
                         <>
-                          <button type="button" onClick={() => reopenRunById(run.id)}>Reopen</button>
-                          <button type="button" onClick={() => voidRunById(run.id)}>Void</button>
+                          <button type="button" onClick={() => openCorrectionDialog(run, "reprocess")}>Reprocess</button>
+                          <button type="button" onClick={() => openCorrectionDialog(run, "void")}>Void</button>
                         </>
                       ) : null}
                     </div>
@@ -8479,6 +8918,43 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
           </table>
         </div>
       </section>
+      {correctionDialog ? (
+        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Payroll correction">
+          <div className="confirm-modal salary-preview-modal payroll-correction-modal">
+            <img src="/logo.png" alt="Wazirabad Cardiology Hospital" />
+            <div>
+              <p>Payroll Correction</p>
+              <h3>{correctionDialog.action === "reprocess" ? "Reprocess Run" : "Void Run"}</h3>
+              <span>
+                {formatPayrollPeriodLabel(correctionDialog.run?.paymentMonth, correctionDialog.run?.paymentYear)}
+                {" | "}
+                Dept {correctionDialog.run?.deptCode || "999"}
+              </span>
+              <p className="correction-impact-text">{correctionDialog.message}</p>
+            </div>
+            <div className="correction-impact-summary">
+              <article>
+                <span>Status</span>
+                <strong>{correctionDialog.run?.status || "-"}</strong>
+              </article>
+              <article>
+                <span>Journal</span>
+                <strong>{correctionDialog.run?.journalReferenceNo || "None"}</strong>
+              </article>
+              <article>
+                <span>Reversal</span>
+                <strong>{correctionDialog.run?.reversalJournalReferenceNo || "None"}</strong>
+              </article>
+            </div>
+            <div className="confirm-modal-actions">
+              <button type="button" onClick={closeCorrectionDialog}>Cancel</button>
+              <button type="button" onClick={applyRunCorrection}>
+                {correctionDialog.action === "reprocess" ? "Reprocess Now" : "Void Run"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {result ? <PayrollCalculationResults result={result} filters={filters} /> : null}
     </section>
   );
@@ -8537,8 +9013,112 @@ function PaySlipsPage() {
   return <PayrollReportShell title="Pay Slips" endpoint="payslips">{(report, filters) => <PayslipView slips={report.slips || []} filters={filters} />}</PayrollReportShell>;
 }
 
+function formatSlipPeriodLabel(slip, filters = {}) {
+  if (slip?.periodLabel) {
+    return slip.periodLabel;
+  }
+
+  if (slip?.paymentMonth && slip?.paymentYear) {
+    const monthIndex = Number(slip.paymentMonth) - 1;
+    const monthName = payrollMonthOptions[monthIndex] || slip.paymentMonth;
+    return `${monthName} ${slip.paymentYear}`;
+  }
+
+  if (filters.month && filters.year) {
+    const monthIndex = Number(filters.month) - 1;
+    const monthName = payrollMonthOptions[monthIndex] || filters.month;
+    return `${monthName} ${filters.year}`;
+  }
+
+  return "Payroll Period";
+}
+
 function PayslipView({ slips, filters }) {
-  return <div className="arrear-report-print-area">{slips.map((slip) => <section className="print-bill-section payslip-section" key={slip.employeeCode}><ReportLetterhead title="Pay Slip" filterSummary={`${filters.month}/${filters.year}`} /><div className="print-section-head"><strong>{slip.employeeCode} - {slip.name}</strong><span>{slip.department}</span><span>{slip.designation}</span><span>BPS {slip.bps}</span></div><table className="print-report-table"><thead><tr><th>Code</th><th>Description</th><th>Amount</th></tr></thead><tbody>{(slip.details || []).map((d, i) => <tr key={i}><td>{d.wageCode}</td><td>{d.description}</td><td className="amount-cell">{formatCurrency(d.amount)}</td></tr>)}</tbody></table><div className="print-subtotal-row"><span>Gross {formatCurrency(slip.grossPay)}</span><span>Deductions {formatCurrency(slip.totalDeductions)}</span><strong>Net {formatCurrency(slip.netPay)}</strong></div></section>)}{!slips.length ? <p className="empty-report-note">No pay slips found.</p> : null}</div>;
+  return (
+    <div className="arrear-report-print-area payslip-report-area">
+      {slips.map((slip, index) => {
+        const periodLabel = formatSlipPeriodLabel(slip, filters);
+        const employeeSummary = [slip.employeeCode, slip.name].filter(Boolean).join(" - ");
+        const summaryCards = [
+          { label: "Gross Pay", value: slip.grossPay },
+          { label: "Total Deductions", value: slip.totalDeductions },
+          { label: "Net Pay", value: slip.netPay }
+        ];
+
+        return (
+          <section className="print-bill-section payslip-section" key={`${slip.employeeCode || "employee"}-${slip.period || periodLabel}-${index}`}>
+            <ReportLetterhead title="Salary Slip" filterSummary={`${periodLabel}${employeeSummary ? ` | ${employeeSummary}` : ""}`} />
+            <div className="payslip-topline">
+              <div>
+                <span>Employee No.</span>
+                <strong>{slip.employeeCode || "-"}</strong>
+              </div>
+              <div>
+                <span>Name</span>
+                <strong>{slip.name || "-"}</strong>
+              </div>
+              <div>
+                <span>Department</span>
+                <strong>{slip.department || "-"}</strong>
+              </div>
+              <div>
+                <span>Designation</span>
+                <strong>{slip.designation || "-"}</strong>
+              </div>
+              <div>
+                <span>BPS</span>
+                <strong>{slip.bps || "-"}</strong>
+              </div>
+              <div>
+                <span>Period</span>
+                <strong>{periodLabel}</strong>
+              </div>
+            </div>
+
+            <div className="payslip-summary-grid">
+              {summaryCards.map((card) => (
+                <article className="payslip-summary-card" key={card.label}>
+                  <span>{card.label}</span>
+                  <strong>{formatCurrency(card.value)}</strong>
+                </article>
+              ))}
+            </div>
+
+            <table className="print-report-table payslip-details-table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(slip.details || []).map((detail, detailIndex) => (
+                  <tr key={`${slip.employeeCode || "slip"}-${detail.wageCode || detailIndex}-${detailIndex}`}>
+                    <td>{detail.wageCode}</td>
+                    <td>{detail.description}</td>
+                    <td className="amount-cell">{formatCurrency(detail.amount)}</td>
+                  </tr>
+                ))}
+                {!slip.details?.length ? (
+                  <tr>
+                    <td colSpan="3">No payroll line items found for this slip.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+
+            <div className="payslip-footer-row">
+              <span>Gross {formatCurrency(slip.grossPay)}</span>
+              <span>Deductions {formatCurrency(slip.totalDeductions)}</span>
+              <strong>Net {formatCurrency(slip.netPay)}</strong>
+            </div>
+          </section>
+        );
+      })}
+      {!slips.length ? <p className="empty-report-note">No pay slips found.</p> : null}
+    </div>
+  );
 }
 
 function SinglePaySlipPage() {
@@ -8565,6 +9145,309 @@ function SinglePaySlipPage() {
   };
 
   return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} /></label><label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{slip ? <PayslipView slips={[slip]} filters={filters} /> : null}</section>;
+}
+
+function SlipReprintHistoryPage() {
+  const fiscalYearRange = getActiveFiscalYearRange();
+  const defaultYear = fiscalYearRange?.endYear || String(new Date().getFullYear());
+  const defaultRange = fiscalYearRange ? {
+    fromMonth: fiscalYearRange.startMonth,
+    toMonth: fiscalYearRange.endMonth,
+    fromYear: fiscalYearRange.startYear,
+    toYear: fiscalYearRange.endYear
+  } : {
+    fromMonth: "1",
+    toMonth: String(new Date().getMonth() + 1),
+    fromYear: defaultYear,
+    toYear: defaultYear
+  };
+  const [filters, setFilters] = useState({
+    employeeCode: "",
+    ...defaultRange
+  });
+  const [fiscalYears, setFiscalYears] = useState([]);
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState("custom");
+  const [report, setReport] = useState(null);
+  const [selectedSlipId, setSelectedSlipId] = useState("");
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+
+  const slips = report?.slips || [];
+  const selectedSlip = slips.find((slip) => String(slip.id) === String(selectedSlipId)) || slips[0] || null;
+
+  useEffect(() => {
+    if (!selectedSlip && selectedSlipId) {
+      setSelectedSlipId("");
+    }
+  }, [selectedSlip, selectedSlipId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFiscalYears() {
+      try {
+        const records = await getFiscalYears();
+
+        if (cancelled) {
+          return;
+        }
+
+        setFiscalYears(records || []);
+
+        const activeYear = records.find((record) => Number(record.isActive) === 1) || records[0] || null;
+        if (activeYear) {
+          const nextRange = getFiscalYearRangeFields(activeYear);
+          if (nextRange) {
+            setSelectedFiscalYearId(String(activeYear.id));
+            setFilters((current) => ({
+              ...current,
+              ...nextRange
+            }));
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus((current) => current.message ? current : { type: "neutral", message: "Fiscal year list could not be loaded. You can still set the range manually." });
+        }
+      }
+    }
+
+    loadFiscalYears();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleFiscalYearChange = (event) => {
+    const value = event.target.value;
+    setSelectedFiscalYearId(value);
+
+    if (value === "custom") {
+      return;
+    }
+
+    const selectedYear = fiscalYears.find((record) => String(record.id) === value);
+    const nextRange = getFiscalYearRangeFields(selectedYear);
+    if (nextRange) {
+      setFilters((current) => ({
+        ...current,
+        ...nextRange
+      }));
+    }
+  };
+
+  const run = async () => {
+    if (!filters.employeeCode.trim()) {
+      setStatus({ type: "error", message: "Employee No is required." });
+      return;
+    }
+
+    const startSerial = (Number(filters.fromYear) || 0) * 12 + (Number(filters.fromMonth) || 0);
+    const endSerial = (Number(filters.toYear) || 0) * 12 + (Number(filters.toMonth) || 0);
+
+    if (!startSerial || !endSerial || startSerial > endSerial) {
+      setStatus({ type: "error", message: "Select a valid month and year range." });
+      return;
+    }
+
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const result = await getReportModule("payslips-for-months", filters);
+      setReport(result.data);
+      const nextSelectedSlip = result.data?.slips?.[0] || null;
+      setSelectedSlipId(nextSelectedSlip ? String(nextSelectedSlip.id) : "");
+
+      if (!result.data?.slips?.length) {
+        setStatus({ type: "neutral", message: "No payslips found for the selected employee and months." });
+      }
+    } catch (error) {
+      setReport(null);
+      setSelectedSlipId("");
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportHistory = () => {
+    if (!slips.length) {
+      setStatus({ type: "error", message: "Load history before exporting." });
+      return;
+    }
+
+    exportRowsToExcel(
+      slips.map((slip) => ({
+        Period: formatSlipPeriodLabel(slip, filters),
+        "Employee No.": slip.employeeCode || "",
+        Name: slip.name || "",
+        Department: slip.department || "",
+        Designation: slip.designation || "",
+        BPS: slip.bps || "",
+        Gross: Number(slip.grossPay || 0),
+        Deductions: Number(slip.totalDeductions || 0),
+        Net: Number(slip.netPay || 0)
+      })),
+      `salary-slip-history-${filters.employeeCode}-${filters.fromMonth}-${filters.fromYear}-to-${filters.toMonth}-${filters.toYear}.xlsx`
+    );
+    setStatus({ type: "success", message: "Slip history exported." });
+  };
+
+  const handlePrintSelectedSlip = () => {
+    if (!selectedSlip) {
+      setStatus({ type: "error", message: "Select a slip to print." });
+      return;
+    }
+
+    window.setTimeout(() => printCurrentDocumentAsExcel("salary-slip-history"), 150);
+  };
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <div className="form-title-row">
+        <div>
+          <p>Reports</p>
+          <h2>Slip Reprint History</h2>
+        </div>
+        <span>{fiscalYearRange ? fiscalYearRange.name : getActiveFiscalYearLabel()}</span>
+      </div>
+
+      <div className="report-filter-panel no-print">
+        <label>
+          <span>Fiscal Year</span>
+          <select value={selectedFiscalYearId} onChange={handleFiscalYearChange}>
+            <option value="custom">Custom Range</option>
+            {fiscalYears.map((fiscalYear) => (
+              <option value={String(fiscalYear.id)} key={fiscalYear.id}>
+                {fiscalYear.name}
+                {Number(fiscalYear.isActive) === 1 ? " (Active)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Employee No</span>
+          <input
+            value={filters.employeeCode}
+            onChange={(event) => setFilters((current) => ({ ...current, employeeCode: event.target.value }))}
+            placeholder="Employee code"
+          />
+        </label>
+        <label>
+          <span>From Month</span>
+          <select value={filters.fromMonth} onChange={(event) => { setSelectedFiscalYearId("custom"); setFilters((current) => ({ ...current, fromMonth: event.target.value })); }}>
+            {payrollMonthOptions.map((monthName, index) => (
+              <option value={String(index + 1)} key={`from-${monthName}`}>{String(index + 1).padStart(2, "0")} - {monthName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>To Month</span>
+          <select value={filters.toMonth} onChange={(event) => { setSelectedFiscalYearId("custom"); setFilters((current) => ({ ...current, toMonth: event.target.value })); }}>
+            {payrollMonthOptions.map((monthName, index) => (
+              <option value={String(index + 1)} key={`to-${monthName}`}>{String(index + 1).padStart(2, "0")} - {monthName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>From Year</span>
+          <input
+            type="number"
+            value={filters.fromYear}
+            onChange={(event) => { setSelectedFiscalYearId("custom"); setFilters((current) => ({ ...current, fromYear: event.target.value })); }}
+          />
+        </label>
+        <label>
+          <span>To Year</span>
+          <input
+            type="number"
+            value={filters.toYear}
+            onChange={(event) => { setSelectedFiscalYearId("custom"); setFilters((current) => ({ ...current, toYear: event.target.value })); }}
+          />
+        </label>
+        <div className="report-filter-actions">
+          <button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "Load History"}</button>
+          <button type="button" onClick={() => { setReport(null); setSelectedSlipId(""); setStatus({ type: "", message: "" }); }}>Clear</button>
+        </div>
+      </div>
+
+      {status.message ? (
+        <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
+      ) : null}
+
+      {report ? (
+        <div className="slip-history-layout">
+          <div className="slip-history-table-card no-print">
+            <div className="slip-history-head">
+              <strong>Reprint History</strong>
+              <span>{slips.length} slip(s)</span>
+            </div>
+            <div className="table-wrap">
+              <table className="employee-table slip-history-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Employee No.</th>
+                    <th>Name</th>
+                    <th>Department</th>
+                    <th>Designation</th>
+                    <th>Gross</th>
+                    <th>Deductions</th>
+                    <th>Net</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slips.map((slip) => {
+                    const isSelected = String(selectedSlipId || selectedSlip?.id || "") === String(slip.id);
+
+                    return (
+                      <tr key={slip.id} className={isSelected ? "selected-row" : ""}>
+                        <td>{formatSlipPeriodLabel(slip, filters)}</td>
+                        <td>{slip.employeeCode}</td>
+                        <td>{slip.name}</td>
+                        <td>{slip.department}</td>
+                        <td>{slip.designation}</td>
+                        <td className="amount-cell">{formatCurrency(slip.grossPay)}</td>
+                        <td className="amount-cell">{formatCurrency(slip.totalDeductions)}</td>
+                        <td className="amount-cell">{formatCurrency(slip.netPay)}</td>
+                        <td>
+                          <div className="row-action-group">
+                            <button type="button" onClick={() => setSelectedSlipId(String(slip.id))}>View</button>
+                            <button type="button" onClick={() => { setSelectedSlipId(String(slip.id)); window.setTimeout(() => printCurrentDocumentAsExcel("salary-slip-history"), 150); }}>
+                              Reprint
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!slips.length ? (
+                    <tr>
+                      <td colSpan="9">No slip history found for the selected filters.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="report-filter-actions no-print history-action-row">
+              <button type="button" onClick={handlePrintSelectedSlip} disabled={!selectedSlip}>Print Selected Slip</button>
+              <button type="button" onClick={exportHistory} disabled={!slips.length}>Export History</button>
+            </div>
+          </div>
+
+          {selectedSlip ? (
+            <div className="slip-history-preview">
+              <PayslipView slips={[selectedSlip]} filters={{ ...filters, month: selectedSlip.paymentMonth, year: selectedSlip.paymentYear }} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function PayDedSchedulePage({ title, defaultCode = "", defaultCodeKey = "", allowExcel = false }) {
@@ -8617,19 +9500,7 @@ function PayDedSchedulePage({ title, defaultCode = "", defaultCodeKey = "", allo
 }
 
 function SinglePaySlipsForMonthsPage() {
-  const today = new Date();
-  const [filters, setFilters] = useState({ employeeCode: "", fromMonth: "1", toMonth: String(today.getMonth() + 1), year: String(today.getFullYear()), outputSelection: "screen" });
-  const [report, setReport] = useState(null);
-  const [status, setStatus] = useState({ type: "", message: "" });
-  const run = async () => {
-    try {
-      const result = await getReportModule("payslips-for-months", filters);
-      setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slips-for-months"), 150);
-      if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("single-pay-slips-for-months");
-    } catch (error) { setStatus({ type: "error", message: error.message }); }
-  };
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Reports</p><h2>Single Pay Slips For Months</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={filters.employeeCode} onChange={(e) => setFilters((c) => ({ ...c, employeeCode: e.target.value }))} /></label><label><span>From Month</span><input type="number" value={filters.fromMonth} onChange={(e) => setFilters((c) => ({ ...c, fromMonth: e.target.value }))} /></label><label><span>To Month</span><input type="number" value={filters.toMonth} onChange={(e) => setFilters((c) => ({ ...c, toMonth: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run}>OK</button><button type="button" onClick={() => setReport(null)}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{report ? <PayslipView slips={report.slips || []} filters={{ month: `${filters.fromMonth}-${filters.toMonth}`, year: filters.year }} /> : null}</section>;
+  return <SlipReprintHistoryPage />;
 }
 
 function DesignationWiseListPage() {
@@ -9250,10 +10121,6 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           </button>
         </nav>
 
-        <div className="sidebar-author">
-          <span>autor: Atif Mehmood</span>
-          <span>Phone: 03147656724</span>
-        </div>
       </aside>
 
       <main className="dashboard-main">
@@ -9297,6 +10164,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <EmployeeBasicDataInquiry onAddEmployee={() => navigateToPage("New Employee Entry")} />
         ) : activeItem === "Arrear Bill Entry" ? (
           <ArrearBillEntry />
+        ) : activeItem === "Arrear Payment" ? (
+          <ArrearPaymentPage />
         ) : activeItem === "Arrear Bill Print" ? (
           <ArrearBillPrintPage />
         ) : activeItem === "Arrear Bill Of An Employee - Doc. Wise" || activeItem === "Arrear Bill Of An Employee Document Wise" ? (
@@ -9359,7 +10228,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <PayDedSchedulePage title="Any Pay/Ded. Schedule" />
         ) : activeItem === "PGHSF Schedule" ? (
           <PayDedSchedulePage title="PGHSF Schedule" defaultCodeKey="pghsf" defaultCode="G11278" allowExcel />
-        ) : activeItem === "Single Pay Slips For Months" ? (
+        ) : activeItem === "Single Pay Slips For Months" || activeItem === "Slip Reprint History" ? (
           <SinglePaySlipsForMonthsPage />
         ) : activeItem === "Designation Wise List" ? (
           <DesignationWiseListPage />

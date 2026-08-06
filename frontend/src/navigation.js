@@ -12,6 +12,7 @@ export const sidebarSections = [
     title: "Arrear Bill",
     items: [
       "Arrear Bill Entry",
+      "Arrear Payment",
       "Budget/Expense Entry",
       "Document Printing",
       "Budget Position"
@@ -47,7 +48,7 @@ export const sidebarSections = [
       "G.P. Fund Schedule",
       "Other Schedules",
       "PGHSF Schedule",
-      "Single Pay Slips For Months",
+      "Slip Reprint History",
       "Designation Wise List",
       "Annual Income Tax Schedule",
       "Post Audit",
@@ -59,7 +60,6 @@ export const sidebarSections = [
   {
     title: "M.Process",
     items: [
-      "Salary Calculation",
       "New Percent Allowance Creation",
       "Fixed Amount Allowance Creation",
       "Annual Increment"

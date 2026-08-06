@@ -91,8 +91,10 @@ export async function getPayDedSchedule({ deptCode = "999", gazNg = "A", reportF
   };
 }
 
-export async function getPayslipsForMonths({ employeeCode, fromMonth, toMonth, year }) {
-  const months = monthRange(fromMonth, year, toMonth, year);
+export async function getPayslipsForMonths({ employeeCode, fromMonth, toMonth, fromYear, toYear, year }) {
+  const startYear = Number(fromYear || year);
+  const endYear = Number(toYear || year || fromYear);
+  const months = monthRange(fromMonth, startYear, toMonth, endYear);
   const slips = [];
 
   for (const period of months) {
@@ -103,6 +105,11 @@ export async function getPayslipsForMonths({ employeeCode, fromMonth, toMonth, y
         SELECT
           pri.id,
           pri.employee_code AS employeeCode,
+          pr.id AS payrollRunId,
+          pr.payment_month AS paymentMonth,
+          pr.payment_year AS paymentYear,
+          pr.processed_at AS processedAt,
+          pr.status AS runStatus,
           e.name,
           e.department,
           e.designation,
@@ -112,9 +119,11 @@ export async function getPayslipsForMonths({ employeeCode, fromMonth, toMonth, y
           pri.total_deductions AS totalDeductions,
           pri.net_pay AS netPay
         FROM payroll_run_items pri
+        INNER JOIN payroll_runs pr ON pr.id = pri.payroll_run_id
         INNER JOIN employees e ON e.employee_no = pri.employee_code
         WHERE pri.employee_code = ?
           AND pri.payroll_run_id IN (${runIds.map(() => "?").join(",")})
+        ORDER BY pr.processed_at DESC, pr.id DESC
         LIMIT 1
       `,
       [employeeCode, ...runIds]
@@ -124,7 +133,12 @@ export async function getPayslipsForMonths({ employeeCode, fromMonth, toMonth, y
       "SELECT wage_code AS wageCode, description, amount FROM payroll_run_item_details WHERE payroll_run_item_id = ? ORDER BY CAST(wage_code AS UNSIGNED)",
       [items[0].id]
     );
-    slips.push({ ...items[0], period: period.key, details });
+    slips.push({
+      ...items[0],
+      period: period.key,
+      periodLabel: monthKey(period.month, period.year),
+      details
+    });
   }
 
   return { slips };

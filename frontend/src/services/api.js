@@ -942,6 +942,75 @@ export async function finalizeArrearBill(id) {
   return readJsonResponse(response, "Arrear bill finalize failed.");
 }
 
+export async function getNextArrearPaymentNo() {
+  const response = await fetch(`${API_BASE_URL}/arrear-payments/next-payment-no`);
+  return readJsonResponse(response, "Next arrear payment number failed.");
+}
+
+export async function getPayableArrearBills(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.employeeCode) {
+    params.set("employee_code", filters.employeeCode);
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/arrear-payments/payable-bills?${params.toString()}`);
+  return readJsonResponse(response, "Payable arrear bills failed.");
+}
+
+export async function getArrearPayments(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.employeeCode) {
+    params.set("employee_code", filters.employeeCode);
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
+  if (filters.billNo) {
+    params.set("bill_no", filters.billNo);
+  }
+
+  if (filters.dateFrom) {
+    params.set("date_from", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    params.set("date_to", filters.dateTo);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/arrear-payments?${params.toString()}`);
+  return readJsonResponse(response, "Arrear payment list failed.");
+}
+
+export async function createArrearPayment(payment) {
+  const response = await fetch(`${API_BASE_URL}/arrear-payments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payment)
+  });
+  return readJsonResponse(response, "Arrear payment save failed.");
+}
+
+export async function reverseArrearPayment(id) {
+  const response = await fetch(`${API_BASE_URL}/arrear-payments/${id}/reverse`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ reversedBy: "Hospital Admin" })
+  });
+  return readJsonResponse(response, "Arrear payment reverse failed.");
+}
+
 export async function getNextBudgetDocumentNo() {
   const response = await fetch(`${API_BASE_URL}/budget-transactions/next-document-no`);
   return readJsonResponse(response, "Next budget document number failed.");

@@ -15,6 +15,18 @@ function getSalaryPayableAccountCode() {
   return String(env.payrollLedgerDefaults?.salaryPayableAccountCode || "L03001").trim();
 }
 
+function getArrearExpenseAccountCode() {
+  return String(env.arrearLedgerDefaults?.arrearExpenseAccountCode || "E03001").trim();
+}
+
+function getArrearSalaryPayableAccountCode() {
+  return String(
+    env.arrearLedgerDefaults?.salaryPayableAccountCode ||
+      env.payrollLedgerDefaults?.salaryPayableAccountCode ||
+      "L03001"
+  ).trim();
+}
+
 async function ensureSalaryPayableAccount(connection = pool) {
   const accountCode = getSalaryPayableAccountCode();
   await connection.query(
@@ -26,6 +38,34 @@ async function ensureSalaryPayableAccount(connection = pool) {
     [accountCode, "SALARY PAYABLE"]
   );
   return accountCode;
+}
+
+async function ensureArrearPostingAccounts(connection = pool) {
+  const arrearExpenseAccountCode = getArrearExpenseAccountCode();
+  const arrearSalaryPayableAccountCode = getArrearSalaryPayableAccountCode();
+
+  await connection.query(
+    `
+      INSERT INTO chart_of_accounts (code, name)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE name = VALUES(name)
+    `,
+    [arrearExpenseAccountCode, "ARREAR EXPENSE"]
+  );
+
+  await connection.query(
+    `
+      INSERT INTO chart_of_accounts (code, name)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE name = VALUES(name)
+    `,
+    [arrearSalaryPayableAccountCode, "SALARY PAYABLE"]
+  );
+
+  return {
+    arrearExpenseAccountCode,
+    arrearSalaryPayableAccountCode
+  };
 }
 
 export async function ensureJournalTables() {
@@ -96,6 +136,139 @@ function buildJournalLine({
     debit: roundCurrency(debit),
     credit: roundCurrency(credit)
   };
+}
+
+async function getJournalEntryBySource(sourceType, sourceId, connection = pool) {
+  const [[entry]] = await connection.query(
+    `
+      SELECT
+        je.id,
+        je.source_type AS sourceType,
+        je.source_id AS sourceId,
+        je.payroll_run_id AS payrollRunId,
+        je.fiscal_year_id AS fiscalYearId,
+        je.entry_date AS entryDate,
+        je.reference_no AS referenceNo,
+        je.description,
+        je.total_debit AS totalDebit,
+        je.total_credit AS totalCredit,
+        je.status,
+        je.posted_by AS postedBy,
+        je.created_at AS createdAt,
+        je.updated_at AS updatedAt
+      FROM journal_entries je
+      WHERE je.source_type = ?
+        AND je.source_id = ?
+      LIMIT 1
+    `,
+    [sourceType, sourceId]
+  );
+
+  if (!entry) {
+    return null;
+  }
+
+  const [lines] = await connection.query(
+    `
+      SELECT
+        jel.id,
+        jel.line_no AS lineNo,
+        jel.account_code AS accountCode,
+        coa.name AS accountName,
+        jel.description,
+        jel.employee_code AS employeeCode,
+        jel.wage_code AS wageCode,
+        jel.debit,
+        jel.credit
+      FROM journal_entry_lines jel
+      INNER JOIN chart_of_accounts coa ON coa.code = jel.account_code
+      WHERE jel.journal_entry_id = ?
+      ORDER BY jel.line_no ASC, jel.id ASC
+    `,
+    [entry.id]
+  );
+
+  return { ...entry, lines };
+}
+
+async function insertJournalEntry(connection, {
+  sourceType,
+  sourceId,
+  payrollRunId = null,
+  fiscalYearId = null,
+  entryDate,
+  referenceNo,
+  description,
+  postedBy,
+  lines
+}) {
+  const totalDebit = roundCurrency(lines.reduce((sum, line) => sum + Number(line.debit || 0), 0));
+  const totalCredit = roundCurrency(lines.reduce((sum, line) => sum + Number(line.credit || 0), 0));
+
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    throw new Error(`Journal is not balanced: debit ${totalDebit} vs credit ${totalCredit}.`);
+  }
+
+  const [entryResult] = await connection.query(
+    `
+      INSERT INTO journal_entries (
+        source_type,
+        source_id,
+        payroll_run_id,
+        fiscal_year_id,
+        entry_date,
+        reference_no,
+        description,
+        total_debit,
+        total_credit,
+        status,
+        posted_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?)
+    `,
+    [
+      sourceType,
+      sourceId,
+      payrollRunId,
+      fiscalYearId,
+      entryDate,
+      referenceNo,
+      description,
+      totalDebit,
+      totalCredit,
+      postedBy
+    ]
+  );
+
+  if (lines.length) {
+    await connection.query(
+      `
+        INSERT INTO journal_entry_lines (
+          journal_entry_id,
+          line_no,
+          account_code,
+          description,
+          employee_code,
+          wage_code,
+          debit,
+          credit
+        ) VALUES ?
+      `,
+      [
+        lines.map((line, index) => [
+          entryResult.insertId,
+          index + 1,
+          line.accountCode,
+          line.description,
+          line.employeeCode,
+          line.wageCode,
+          line.debit,
+          line.credit
+        ])
+      ]
+    );
+  }
+
+  return getJournalEntryBySource(sourceType, sourceId, connection);
 }
 
 export async function createPayrollJournalEntry({
@@ -429,4 +602,188 @@ export async function reversePayrollJournalEntryByRun(payrollRunId, connection =
   );
 
   return getJournalEntryById(reversalResult.insertId, connection);
+}
+
+export async function createArrearJournalEntry({
+  connection = pool,
+  arrearBillId,
+  fiscalYearId = null,
+  billDate,
+  employeeCode,
+  documentNo,
+  totalAmount,
+  postedBy = "Hospital Admin"
+}) {
+  if (!arrearBillId) {
+    return null;
+  }
+
+  const existingEntry = await getJournalEntryBySource("arrear_bill", arrearBillId, connection);
+  if (existingEntry && String(existingEntry.status || "").toLowerCase() === "posted") {
+    return existingEntry;
+  }
+
+  const { arrearExpenseAccountCode, arrearSalaryPayableAccountCode } = await ensureArrearPostingAccounts(connection);
+  const amount = roundCurrency(totalAmount);
+
+  if (!amount) {
+    return null;
+  }
+
+  const entryDate = String(billDate || new Date().toISOString().slice(0, 10));
+  const referenceNo = `ARREAR-${String(documentNo).padStart(4, "0")}`;
+  const description = `Arrear bill for employee ${String(employeeCode || "").trim()}`;
+
+  return insertJournalEntry(connection, {
+    sourceType: "arrear_bill",
+    sourceId: arrearBillId,
+    fiscalYearId,
+    entryDate,
+    referenceNo,
+    description,
+    postedBy,
+    lines: [
+      buildJournalLine({
+        accountCode: arrearExpenseAccountCode,
+        description: `Arrear expense ${referenceNo}`,
+        employeeCode,
+        debit: amount,
+        credit: 0
+      }),
+      buildJournalLine({
+        accountCode: arrearSalaryPayableAccountCode,
+        description: `Arrear payable ${referenceNo}`,
+        employeeCode,
+        debit: 0,
+        credit: amount
+      })
+    ]
+  });
+}
+
+export async function reverseArrearJournalEntryByBillId(arrearBillId, connection = pool, reversedBy = "Hospital Admin") {
+  const entry = await getJournalEntryBySource("arrear_bill", arrearBillId, connection);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (String(entry.status || "").toLowerCase() === "reversed") {
+    return entry;
+  }
+
+  const reversalLines = (entry.lines || []).map((line) =>
+    buildJournalLine({
+      accountCode: line.accountCode,
+      description: `Reversal of ${line.description || entry.referenceNo}`,
+      employeeCode: line.employeeCode,
+      wageCode: line.wageCode,
+      debit: line.credit,
+      credit: line.debit
+    })
+  );
+
+  const reversal = await insertJournalEntry(connection, {
+    sourceType: "arrear_bill_reversal",
+    sourceId: entry.id,
+    fiscalYearId: entry.fiscalYearId || null,
+    entryDate: entry.entryDate,
+    referenceNo: `${entry.referenceNo}-REV`,
+    description: `Reversal of ${entry.description || entry.referenceNo}`,
+    postedBy: reversedBy,
+    lines: reversalLines
+  });
+
+  await connection.query(
+    "UPDATE journal_entries SET status = 'reversed', source_id = NULL WHERE id = ?",
+    [entry.id]
+  );
+
+  return reversal;
+}
+
+export async function createArrearPaymentJournalEntry({
+  connection = pool,
+  arrearPaymentId,
+  fiscalYearId = null,
+  paymentDate,
+  arrearBillDocumentNo,
+  employeeCode,
+  paymentAccountCode,
+  amount,
+  referenceNo,
+  postedBy = "Hospital Admin"
+}) {
+  if (!arrearPaymentId) {
+    return null;
+  }
+
+  const entry = await insertJournalEntry(connection, {
+    sourceType: "arrear_payment",
+    sourceId: arrearPaymentId,
+    fiscalYearId,
+    entryDate: paymentDate,
+    referenceNo: referenceNo || `ARPAY-${String(arrearPaymentId).padStart(4, "0")}`,
+    description: `Arrear payment for bill ${String(arrearBillDocumentNo || "").trim()}`,
+    postedBy,
+    lines: [
+      buildJournalLine({
+        accountCode: getSalaryPayableAccountCode(),
+        description: `Clear arrear payable for bill ${String(arrearBillDocumentNo || "").trim()}`,
+        employeeCode,
+        debit: amount,
+        credit: 0
+      }),
+      buildJournalLine({
+        accountCode: paymentAccountCode,
+        description: `Payment against arrear bill ${String(arrearBillDocumentNo || "").trim()}`,
+        employeeCode,
+        debit: 0,
+        credit: amount
+      })
+    ]
+  });
+
+  return entry;
+}
+
+export async function reverseArrearPaymentJournalEntryByPaymentId(arrearPaymentId, connection = pool, reversedBy = "Hospital Admin") {
+  const entry = await getJournalEntryBySource("arrear_payment", arrearPaymentId, connection);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (String(entry.status || "").toLowerCase() === "reversed") {
+    return entry;
+  }
+
+  const reversalLines = (entry.lines || []).map((line) =>
+    buildJournalLine({
+      accountCode: line.accountCode,
+      description: `Reversal of ${line.description || entry.referenceNo}`,
+      employeeCode: line.employeeCode,
+      wageCode: line.wageCode,
+      debit: line.credit,
+      credit: line.debit
+    })
+  );
+
+  const reversal = await insertJournalEntry(connection, {
+    sourceType: "arrear_payment_reversal",
+    sourceId: entry.id,
+    fiscalYearId: entry.fiscalYearId || null,
+    entryDate: entry.entryDate,
+    referenceNo: `${entry.referenceNo}-REV`,
+    description: `Reversal of ${entry.description || entry.referenceNo}`,
+    postedBy: reversedBy,
+    lines: reversalLines
+  });
+
+  await connection.query(
+    "UPDATE journal_entries SET status = 'reversed', source_id = NULL WHERE id = ?",
+    [entry.id]
+  );
+
+  return reversal;
 }
