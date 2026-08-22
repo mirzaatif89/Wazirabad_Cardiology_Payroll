@@ -632,6 +632,101 @@ export async function activateFiscalYear(id) {
   return readJsonResponse(response, "Fiscal year activate failed.");
 }
 
+export async function getNextEmployeeAdvanceNo() {
+  const response = await fetch(`${API_BASE_URL}/employee-advances/next-no`);
+  return readJsonResponse(response, "Next employee advance number failed.");
+}
+
+export async function getEmployeeAdvances(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.employeeCode) {
+    params.set("employee_code", filters.employeeCode);
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/employee-advances?${params.toString()}`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Employee advance list failed.");
+  }
+
+  return data.data;
+}
+
+export async function getEmployeeAdvance(id) {
+  const response = await fetch(`${API_BASE_URL}/employee-advances/${id}`);
+  return readJsonResponse(response, "Employee advance lookup failed.");
+}
+
+export async function createEmployeeAdvance(payload) {
+  const response = await fetch(`${API_BASE_URL}/employee-advances`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Employee advance save failed.");
+  }
+
+  return data;
+}
+
+export async function updateEmployeeAdvance(id, payload) {
+  const response = await fetch(`${API_BASE_URL}/employee-advances/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Employee advance update failed.");
+  }
+
+  return data;
+}
+
+export async function closeEmployeeAdvance(id, payload = {}) {
+  const response = await fetch(`${API_BASE_URL}/employee-advances/${id}/close`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Employee advance close failed.");
+  }
+
+  return data;
+}
+
+export async function deleteEmployeeAdvance(id) {
+  const response = await fetch(`${API_BASE_URL}/employee-advances/${id}`, {
+    method: "DELETE"
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Employee advance delete failed.");
+  }
+
+  return data;
+}
+
 export async function getTaxPolicies(filters = {}) {
   const params = new URLSearchParams();
 
@@ -769,6 +864,55 @@ export async function deleteTaxSlab(policyId, slabId) {
   }
 
   return data;
+}
+
+export async function generateStoredTaxDeductions(payload) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/generate-deductions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Stored tax generation failed.");
+  }
+
+  return data;
+}
+
+export async function getTaxGenerationHistory(filters = {}) {
+  const params = new URLSearchParams();
+
+  if (filters.fiscalYearId) {
+    params.set("fiscal_year_id", filters.fiscalYearId);
+  }
+
+  if (filters.limit) {
+    params.set("limit", filters.limit);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/tax-policies/generation-history?${params.toString()}`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax generation history failed.");
+  }
+
+  return data.data;
+}
+
+export async function getTaxGenerationBatchDetails(batchId) {
+  const response = await fetch(`${API_BASE_URL}/tax-policies/generation-history/${batchId}`);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Tax generation batch details failed.");
+  }
+
+  return data.data;
 }
 
 export async function getSpecialPay(employeeCode, filters = {}) {

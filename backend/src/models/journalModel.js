@@ -286,12 +286,20 @@ export async function createPayrollJournalEntry({
   }
 
   const [existingRows] = await connection.query(
-    "SELECT id FROM journal_entries WHERE payroll_run_id = ? LIMIT 1",
-    [payrollRunId]
+    `
+      SELECT id
+      FROM journal_entries
+      WHERE payroll_run_id = ?
+         OR (source_type = 'payroll_run' AND source_id = ?)
+    `,
+    [payrollRunId, payrollRunId]
   );
 
   if (existingRows.length) {
-    await connection.query("DELETE FROM journal_entries WHERE id = ?", [existingRows[0].id]);
+    await connection.query(
+      "DELETE FROM journal_entries WHERE id IN (?)",
+      [existingRows.map((row) => row.id)]
+    );
   }
 
   const salaryPayableAccountCode = await ensureSalaryPayableAccount(connection);

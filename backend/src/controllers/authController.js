@@ -1,4 +1,5 @@
 import { randomInt } from "crypto";
+import { env } from "../config/env.js";
 import {
   consumePasswordResetToken,
   createPasswordResetOtp,
@@ -54,13 +55,13 @@ export const changePassword = async (req, res) => {
   }
 
   try {
-    const admin = await verifyAdminPassword("admin", currentPassword);
+    const admin = await verifyAdminPassword(env.adminUsername || "admin", currentPassword);
 
     if (!admin) {
       return res.status(401).json({ message: "Current password is incorrect." });
     }
 
-    await updateAdminPassword("admin", newPassword);
+    await updateAdminPassword(env.adminUsername || "admin", newPassword);
     return res.json({ message: "Password changed successfully." });
   } catch (error) {
     console.error("Password change failed:", error);

@@ -42,6 +42,9 @@ import {
   deleteWageCode,
   finalizeArrearBill,
   finalizeBudgetTransaction,
+  closeEmployeeAdvance,
+  createEmployeeAdvance,
+  deleteEmployeeAdvance,
   getArrearBill,
   getArrearBillReport,
   getArrearBills,
@@ -62,6 +65,8 @@ import {
   getDepartments,
   getDesignations,
   getAllowancesExport,
+  getEmployeeAdvances,
+  getNextEmployeeAdvanceNo,
   getWageCodes,
   getPayableArrearBills,
   getNextArrearDocumentNo,
@@ -98,8 +103,11 @@ import {
   createTaxSlab,
   deleteTaxPolicy,
   deleteTaxSlab,
+  generateStoredTaxDeductions,
   getTaxPolicies,
   getTaxSlabs,
+  getTaxGenerationHistory,
+  getTaxGenerationBatchDetails,
   reopenPayrollRun,
   voidPayrollRun,
   reopenArrearBill,
@@ -118,6 +126,7 @@ import {
   updateDesignation,
   updateEmployee,
   updateFiscalYear,
+  updateEmployeeAdvance,
   updateTaxPolicy,
   updateTaxSlab,
   updateWageCode
@@ -3038,6 +3047,7 @@ function FiscalYearManagement() {
 
 function TaxSlabManagement() {
   const currentFiscalYear = getActiveFiscalYearRecord();
+  const today = new Date();
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState(String(currentFiscalYear?.id || ""));
   const [policies, setPolicies] = useState([]);
@@ -3063,6 +3073,15 @@ function TaxSlabManagement() {
   const [loading, setLoading] = useState(true);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingSlab, setSavingSlab] = useState(false);
+  const [generatingTax, setGeneratingTax] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [taxHistory, setTaxHistory] = useState([]);
+  const [selectedHistoryBatch, setSelectedHistoryBatch] = useState(null);
+  const [loadingHistoryBatch, setLoadingHistoryBatch] = useState(false);
+  const [taxGenerationForm, setTaxGenerationForm] = useState({
+    paymentMonth: String(today.getMonth() + 1),
+    paymentYear: String(today.getFullYear())
+  });
 
   const loadFiscalYears = async () => {
     const records = await getFiscalYears();
@@ -3110,6 +3129,44 @@ function TaxSlabManagement() {
     setSlabs(slabRows);
   };
 
+  const loadTaxHistory = async (fiscalYearId) => {
+    if (!fiscalYearId) {
+      setTaxHistory([]);
+      return;
+    }
+
+    setLoadingHistory(true);
+    try {
+      const rows = await getTaxGenerationHistory({ fiscalYearId, limit: 25 });
+      setTaxHistory(rows || []);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+      setTaxHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const openHistoryBatch = async (batchId) => {
+    setLoadingHistoryBatch(true);
+    setSelectedHistoryBatch({
+      batch: { id: batchId },
+      snapshots: []
+    });
+    try {
+      const details = await getTaxGenerationBatchDetails(batchId);
+      setSelectedHistoryBatch(details);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoadingHistoryBatch(false);
+    }
+  };
+
+  const closeHistoryBatch = () => {
+    setSelectedHistoryBatch(null);
+  };
+
   const refreshAll = async () => {
     setLoading(true);
     setStatus({ type: "", message: "Loading tax slabs..." });
@@ -3118,6 +3175,7 @@ function TaxSlabManagement() {
       await loadFiscalYears();
       const fiscalYearId = selectedFiscalYearId || String(currentFiscalYear?.id || "");
       await loadPolicies(fiscalYearId);
+      await loadTaxHistory(fiscalYearId);
       setStatus({ type: "success", message: "Tax policies loaded." });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -3152,6 +3210,7 @@ function TaxSlabManagement() {
 
         setSelectedPolicyId(nextPolicy ? String(nextPolicy.id) : "");
         setSlabs(nextPolicy ? await getTaxSlabs(nextPolicy.id) : []);
+        await loadTaxHistory(selectedFiscalYearId);
       } catch (error) {
         if (!cancelled) {
           setStatus({ type: "error", message: error.message });
@@ -3213,6 +3272,48 @@ function TaxSlabManagement() {
   const resetSlabForm = () => {
     setSlabForm({ srNo: "", fromIncome: "", toIncome: "", rate: "", fixedTax: "" });
     setEditingSlab(null);
+  };
+
+  const updateTaxGenerationField = (event) => {
+    const { name, value } = event.target;
+    setTaxGenerationForm((current) => ({ ...current, [name]: value }));
+  };
+
+  const generateTaxSnapshots = async () => {
+    if (!selectedFiscalYearId) {
+      setStatus({ type: "error", message: "Select a fiscal year first." });
+      return;
+    }
+
+    if (!taxGenerationForm.paymentMonth || !taxGenerationForm.paymentYear) {
+      setStatus({ type: "error", message: "Month and year are required for tax generation." });
+      return;
+    }
+
+    setGeneratingTax(true);
+    setStatus({ type: "", message: "Generating stored tax deductions..." });
+
+    try {
+      const result = await generateStoredTaxDeductions({
+        fiscalYearId: selectedFiscalYearId,
+        paymentMonth: taxGenerationForm.paymentMonth,
+        paymentYear: taxGenerationForm.paymentYear,
+        deptCode: "999",
+        gazNg: "A",
+        reportFor: "All",
+        generatedBy: "Hospital Admin"
+      });
+
+      setStatus({
+        type: "success",
+        message: `Stored tax deductions generated for ${result.data.generatedCount} employee(s). Total tax PKR ${formatCurrency(result.data.totalTax || 0)}.`
+      });
+      await loadTaxHistory(selectedFiscalYearId);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setGeneratingTax(false);
+    }
   };
 
   const savePolicy = async (event) => {
@@ -3388,6 +3489,136 @@ function TaxSlabManagement() {
           </select>
         </label>
       </div>
+
+      <div className="report-filter-panel proof-filter-panel no-print">
+        <label>
+          <span>Tax Month</span>
+          <select name="paymentMonth" value={taxGenerationForm.paymentMonth} onChange={updateTaxGenerationField}>
+            {payrollMonthOptions.map((monthName, index) => (
+              <option key={monthName} value={String(index + 1)}>
+                {index + 1} - {monthName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Tax Year</span>
+          <input
+            name="paymentYear"
+            type="number"
+            value={taxGenerationForm.paymentYear}
+            onChange={updateTaxGenerationField}
+          />
+        </label>
+        <div className="report-filter-actions">
+          <button type="button" onClick={generateTaxSnapshots} disabled={generatingTax}>
+            {generatingTax ? "Generating..." : "Generate Stored Tax"}
+          </button>
+        </div>
+      </div>
+
+      <div className="table-wrap no-print" style={{ marginBottom: "1.5rem" }}>
+        <table className="department-table">
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th>Period</th>
+              <th>Dept</th>
+              <th>Employees</th>
+              <th>Total Tax</th>
+              <th>Generated By</th>
+              <th>Generated At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {taxHistory.map((row) => (
+              <tr key={row.id}>
+                <td>#{row.id}</td>
+                <td>{String(row.paymentMonth).padStart(2, "0")}/{row.paymentYear}</td>
+                <td>{row.deptCode || "999"}</td>
+                <td>{row.generatedCount || 0}</td>
+                <td>{formatCurrency(row.totalTax || 0)}</td>
+                <td>{row.generatedBy || "-"}</td>
+                <td>{row.generatedAt ? new Date(row.generatedAt).toLocaleString() : "-"}</td>
+                <td>
+                  <button type="button" onClick={() => openHistoryBatch(row.id)}>
+                    View
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!taxHistory.length && !loadingHistory ? (
+              <tr>
+                <td colSpan="8">No tax generation history found for this fiscal year.</td>
+              </tr>
+            ) : null}
+            {loadingHistory ? (
+              <tr>
+                <td colSpan="8">Loading history...</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedHistoryBatch ? (
+        <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Tax generation batch details">
+          <div className="confirm-modal salary-preview-modal">
+            <div>
+              <p>Tax Generation Batch</p>
+              <h3>Batch #{selectedHistoryBatch.batch?.id || selectedHistoryBatch.id}</h3>
+              <span>
+                {selectedHistoryBatch.batch?.fiscalYearName || "-"} |{" "}
+                {String(selectedHistoryBatch.batch?.paymentMonth || "").padStart(2, "0")}/{selectedHistoryBatch.batch?.paymentYear || ""} |{" "}
+                {selectedHistoryBatch.batch?.generatedCount || 0} employee(s)
+              </span>
+            </div>
+
+            {loadingHistoryBatch ? (
+              <p>Loading batch details...</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="department-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Name</th>
+                      <th>Gross</th>
+                      <th>Annualized</th>
+                      <th>Slab</th>
+                      <th>Credit</th>
+                      <th>Tax</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedHistoryBatch.snapshots || []).map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.employeeCode}</td>
+                        <td>{row.employeeName || "-"}</td>
+                        <td>{formatCurrency(row.grossPay || 0)}</td>
+                        <td>{formatCurrency(row.annualizedIncome || 0)}</td>
+                        <td>{formatTaxSlabRange(row.slab)}</td>
+                        <td>{formatCurrency((row.priorEmployerTaxCredit || 0) + (row.companyTaxPaidYTD || 0))}</td>
+                        <td>{formatCurrency(row.taxAmount || 0)}</td>
+                      </tr>
+                    ))}
+                    {!selectedHistoryBatch.snapshots?.length ? (
+                      <tr>
+                        <td colSpan="7">No employee snapshots found for this batch.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="confirm-modal-actions">
+              <button type="button" onClick={closeHistoryBatch}>Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <form className="department-code-form" onSubmit={savePolicy}>
         <label>
@@ -5799,6 +6030,352 @@ function ArrearPaymentPage() {
   );
 }
 
+function EmployeeAdvancesPage() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [advances, setAdvances] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingAdvance, setEditingAdvance] = useState(null);
+  const [form, setForm] = useState({
+    advanceNo: "",
+    employeeCode: "",
+    issueDate: today,
+    advanceAmount: "",
+    monthlyInstallment: "",
+    deductionMode: "full",
+    deductionValue: "",
+    balanceAmount: "",
+    notes: "",
+    status: "active"
+  });
+
+  const employeeOptions = employees
+    .map((employee) => ({
+      value: String(employee.employeeNo || employee.employee_no || ""),
+      label: `${String(employee.employeeNo || employee.employee_no || "").trim()} - ${employee.name || "-"}`
+    }))
+    .filter((employee) => employee.value);
+
+  const updateField = (event) => {
+    const { name, value } = event.target;
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+      ...(name === "advanceAmount" && !editingAdvance && !current.balanceAmount
+        ? { balanceAmount: value }
+        : {})
+    }));
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "Loading employee advances..." });
+
+    try {
+      const [nextNoResult, advanceRecords, employeeRecords] = await Promise.all([
+        getNextEmployeeAdvanceNo(),
+        getEmployeeAdvances(),
+        getEmployees()
+      ]);
+
+      const normalizedEmployees = Array.isArray(employeeRecords) ? employeeRecords : [];
+
+      setAdvances(Array.isArray(advanceRecords) ? advanceRecords : []);
+      setEmployees(normalizedEmployees);
+      setForm((current) => ({
+        ...current,
+        advanceNo: current.advanceNo || nextNoResult?.data?.advanceNo || "",
+        employeeCode: current.employeeCode || normalizedEmployees[0]?.employeeNo || normalizedEmployees[0]?.employee_no || ""
+      }));
+      setStatus({
+        type: "",
+        message: `${Array.isArray(advanceRecords) ? advanceRecords.length : 0} advance record(s) loaded.`
+      });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setEditingAdvance(null);
+    setForm((current) => ({
+      advanceNo: current.advanceNo || "",
+      employeeCode: employeeOptions[0]?.value || "",
+      issueDate: today,
+      advanceAmount: "",
+      monthlyInstallment: "",
+      deductionMode: "full",
+      deductionValue: "",
+      balanceAmount: "",
+      notes: "",
+      status: "active"
+    }));
+  };
+
+  const startEdit = (advance) => {
+    setEditingAdvance(advance);
+    setForm({
+      advanceNo: String(advance.advanceNo || ""),
+      employeeCode: String(advance.employeeCode || ""),
+      issueDate: String(advance.issueDate || today),
+      advanceAmount: String(advance.advanceAmount ?? ""),
+      monthlyInstallment: String(advance.monthlyInstallment ?? ""),
+      deductionMode: advance.deductionMode || "full",
+      deductionValue: String(advance.deductionValue ?? ""),
+      balanceAmount: String(advance.balanceAmount ?? ""),
+      notes: advance.notes || "",
+      status: advance.status || "active"
+    });
+    setStatus({ type: "", message: "" });
+  };
+
+  const saveAdvance = async (event) => {
+    event.preventDefault();
+
+    if (!form.employeeCode) {
+      setStatus({ type: "error", message: "Select an employee." });
+      return;
+    }
+
+    if (!form.issueDate) {
+      setStatus({ type: "error", message: "Issue date is required." });
+      return;
+    }
+
+    if (Number(form.advanceAmount || 0) <= 0) {
+      setStatus({ type: "error", message: "Advance amount must be greater than 0." });
+      return;
+    }
+
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+
+    try {
+      const payload = {
+        employeeCode: form.employeeCode,
+        issueDate: form.issueDate,
+        advanceAmount: Number(form.advanceAmount || 0),
+        monthlyInstallment: Number(form.monthlyInstallment || 0),
+        deductionMode: form.deductionMode,
+        deductionValue: form.deductionValue === "" ? "" : Number(form.deductionValue || 0),
+        balanceAmount: form.balanceAmount === "" ? Number(form.advanceAmount || 0) : Number(form.balanceAmount || 0),
+        notes: form.notes,
+        status: form.status,
+        createdBy: "Hospital Admin",
+        updatedBy: "Hospital Admin"
+      };
+
+      const result = editingAdvance
+        ? await updateEmployeeAdvance(editingAdvance.id, payload)
+        : await createEmployeeAdvance(payload);
+
+      setStatus({ type: "success", message: result.message });
+      setEditingAdvance(null);
+      await loadData();
+      setForm((current) => ({
+        ...current,
+        advanceNo: result.data?.advanceNo || current.advanceNo || "",
+        employeeCode: current.employeeCode || employeeOptions[0]?.value || "",
+        issueDate: today,
+        advanceAmount: "",
+        monthlyInstallment: "",
+        deductionMode: "full",
+        deductionValue: "",
+        balanceAmount: "",
+        notes: "",
+        status: "active"
+      }));
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const closeAdvance = async (advance) => {
+    if (!window.confirm(`Close employee advance #${advance.advanceNo}?`)) {
+      return;
+    }
+
+    try {
+      const result = await closeEmployeeAdvance(advance.id, { closedBy: "Hospital Admin" });
+      setStatus({ type: "success", message: result.message });
+      await loadData();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const removeAdvance = async (advance) => {
+    if (!window.confirm(`Delete employee advance #${advance.advanceNo}?`)) {
+      return;
+    }
+
+    try {
+      const result = await deleteEmployeeAdvance(advance.id);
+      setStatus({ type: "success", message: result.message });
+      if (editingAdvance?.id === advance.id) {
+        resetForm();
+      }
+      await loadData();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  return (
+    <section className="employee-entry-panel arrear-entry-panel" aria-label="Employee advances">
+      <div className="form-title-row no-print">
+        <div>
+          <p>Management</p>
+          <h2>Employee Advances</h2>
+        </div>
+        <div className="title-actions">
+          <button className="refresh-button" type="button" onClick={loadData} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+
+      <form className="arrear-header-grid no-print" onSubmit={saveAdvance}>
+        <label>
+          <span>Advance #</span>
+          <input readOnly value={form.advanceNo || ""} />
+        </label>
+        <label>
+          <span>Employee Code / Name</span>
+          <select name="employeeCode" value={form.employeeCode} onChange={updateField}>
+            <option value="">Select employee</option>
+            {employeeOptions.map((employee) => (
+              <option key={employee.value} value={employee.value}>
+                {employee.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Issue Date</span>
+          <input name="issueDate" type="date" value={form.issueDate} onChange={updateField} />
+        </label>
+        <label>
+          <span>Advance Amount</span>
+          <input name="advanceAmount" type="number" step="0.01" value={form.advanceAmount} onChange={updateField} />
+        </label>
+        <label>
+          <span>Monthly Installment</span>
+          <input name="monthlyInstallment" type="number" step="0.01" value={form.monthlyInstallment} onChange={updateField} placeholder="Optional fixed recovery" />
+        </label>
+        <label>
+          <span>Deduction Mode</span>
+          <select name="deductionMode" value={form.deductionMode} onChange={updateField}>
+            <option value="full">Full installment</option>
+            <option value="percent">Percentage of installment</option>
+            <option value="fixed">Fixed amount</option>
+            <option value="hold">Hold / skip for now</option>
+          </select>
+        </label>
+        <label>
+          <span>Deduction Value</span>
+          <input name="deductionValue" type="number" step="0.01" value={form.deductionValue} onChange={updateField} placeholder="Used for percent or fixed mode" />
+        </label>
+        <label>
+          <span>Balance Amount</span>
+          <input name="balanceAmount" type="number" step="0.01" value={form.balanceAmount} readOnly />
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status" value={form.status} onChange={updateField}>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="void">Void</option>
+          </select>
+        </label>
+        <label className="wide-field">
+          <span>Notes</span>
+          <input name="notes" value={form.notes} onChange={updateField} placeholder="Optional note" />
+        </label>
+        <div className="arrear-footer-row">
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : editingAdvance ? "Update Advance" : "Save Advance"}
+          </button>
+          <button type="button" onClick={resetForm}>Clear</button>
+        </div>
+      </form>
+
+      <div className="arrear-list-section no-print">
+        <div className="form-title-row">
+          <div>
+            <p>Employee Advances</p>
+            <h2>Advance History</h2>
+          </div>
+          <span>{advances.length} record(s)</span>
+        </div>
+
+        <div className="table-wrap arrear-table-wrap">
+          <table className="department-table arrear-list-table">
+            <thead>
+              <tr>
+                <th>Advance #</th>
+                <th>Employee</th>
+                <th>Issue Date</th>
+                <th>Amount</th>
+                <th>Monthly Inst.</th>
+                <th>Mode</th>
+                <th>Deduction Value</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {advances.length ? advances.map((advance) => (
+                <tr key={advance.id}>
+                  <td>{advance.advanceNo}</td>
+                  <td>{advance.employeeCode} - {advance.employeeName}</td>
+                  <td>{advance.issueDate}</td>
+                  <td className="amount-cell">{formatCurrency(advance.advanceAmount)}</td>
+                  <td className="amount-cell">{formatCurrency(advance.monthlyInstallment)}</td>
+                  <td>{advance.deductionMode}</td>
+                  <td className="amount-cell">{formatCurrency(advance.deductionValue)}</td>
+                  <td className="amount-cell">{formatCurrency(advance.balanceAmount)}</td>
+                  <td>{advance.status}</td>
+                  <td>
+                    <div className="arrear-list-actions">
+                      <button type="button" onClick={() => startEdit(advance)}>
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => closeAdvance(advance)} disabled={advance.status !== "active"}>
+                        Close
+                      </button>
+                      <button type="button" onClick={() => removeAdvance(advance)}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan="10">No employee advances found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ArrearLineItemsTable({ items }) {
   return (
     <table className="print-report-table arrear-print-items">
@@ -8191,6 +8768,9 @@ function normalizePayrollPreview(data) {
     ...normalized,
     fiscalYear: data.fiscalYear || null,
     fiscalYearName: data.fiscalYearName || data.fiscalYear?.name || null,
+    existingRunId: data.existingRunId || data.existing_run_id || null,
+    existingRunStatus: data.existingRunStatus || data.existing_run_status || null,
+    warningMessage: data.warningMessage || data.warning_message || null,
     taxPolicyName: data.taxPolicyName || null,
     taxBasis: data.taxBasis || null,
     taxTotal: Number(data.taxTotal || data.tax_total || normalized?.totals?.taxAmount || 0)
@@ -8634,11 +9214,17 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     try {
       const response = await previewPayroll({ ...filters, year: paymentYear });
       const preview = normalizePayrollPreview(response.data);
+      const previewMessage = preview?.warningMessage
+        ? `${preview.warningMessage} Review the preview before posting payroll for ${filters.month}/${paymentYear}.`
+        : `Review the preview for ${preview?.fiscalYearName || "the selected fiscal year"} before posting payroll for ${filters.month}/${paymentYear}.`;
       setConfirmDialog({
         preview,
-        message: `Review the preview for ${preview?.fiscalYearName || "the selected fiscal year"} before posting payroll for ${filters.month}/${paymentYear}.`
+        message: previewMessage
       });
-      setStatus({ type: "neutral", message: "Payroll preview loaded. Review the slab and tax details before posting." });
+      setStatus({
+        type: "neutral",
+        message: preview?.warningMessage || "Payroll preview loaded. Review the slab and tax details before posting."
+      });
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {
@@ -10272,6 +10858,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <WageCodeMaster />
         ) : activeItem === "Fiscal Year Settings" ? (
           <FiscalYearManagement />
+        ) : activeItem === "Employee Advances" ? (
+          <EmployeeAdvancesPage />
         ) : activeItem === "Tax Slab Settings" ? (
           <TaxSlabManagement />
         ) : activeItem === "Reset Data" ? (

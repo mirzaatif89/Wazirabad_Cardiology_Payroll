@@ -5,6 +5,8 @@ dotenv.config();
 export const env = {
   port: Number(process.env.PORT || 5050),
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+  adminUsername: process.env.ADMIN_USERNAME || "admin",
+  adminName: process.env.ADMIN_NAME || "Hospital Admin",
   db: {
     host: process.env.DB_HOST || "localhost",
     port: Number(process.env.DB_PORT || 3306),
@@ -14,6 +16,7 @@ export const env = {
   },
   jwtSecret: process.env.JWT_SECRET || "change_this_secret_for_production",
   adminEmail: process.env.ADMIN_EMAIL || "",
+  adminPassword: process.env.ADMIN_PASSWORD || "admin123",
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT || 587),

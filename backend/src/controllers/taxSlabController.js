@@ -12,6 +12,7 @@ import {
   updateTaxPolicyById,
   updateTaxSlabById
 } from "../models/taxSlabModel.js";
+import { generateStoredPayrollTax, getTaxGenerationBatchDetails, getTaxGenerationHistory } from "../models/payrollModel.js";
 
 function validateTaxPolicy(policy) {
   if (!policy.fiscalYearId) {
@@ -241,5 +242,61 @@ export async function deleteTaxSlab(req, res) {
   } catch (error) {
     console.error("Tax slab delete failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Tax slab delete failed." });
+  }
+}
+
+export async function generateStoredTaxDeductions(req, res) {
+  const fiscalYearId = req.body?.fiscalYearId || req.body?.fiscal_year_id || req.query?.fiscalYearId || req.query?.fiscal_year_id;
+
+  if (!fiscalYearId) {
+    return res.status(400).json({ success: false, data: null, message: "Fiscal year is required." });
+  }
+
+  try {
+    const result = await generateStoredPayrollTax({
+      fiscalYearId,
+      paymentMonth: req.body?.paymentMonth || req.body?.month || new Date().getMonth() + 1,
+      paymentYear: req.body?.paymentYear || req.body?.year || new Date().getFullYear(),
+      deptCode: req.body?.deptCode || req.body?.dept_code || "999",
+      gazNg: req.body?.gazNg || req.body?.gaz_ng || "A",
+      reportFor: req.body?.reportFor || req.body?.report_for || "All",
+      generatedBy: req.body?.generatedBy || req.body?.generated_by || "Hospital Admin"
+    });
+
+    if (result.status === "error") {
+      return res.status(400).json({ success: false, data: result, message: result.message });
+    }
+
+    return res.json({ success: true, data: result, message: "Stored tax deductions generated successfully." });
+  } catch (error) {
+    console.error("Stored tax generation failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Stored tax generation failed." });
+  }
+}
+
+export async function listTaxGenerationHistory(req, res) {
+  try {
+    const history = await getTaxGenerationHistory({
+      fiscalYearId: req.query.fiscal_year_id || req.query.fiscalYearId || "",
+      limit: req.query.limit || 50
+    });
+    return res.json({ success: true, data: history, message: "Tax generation history loaded." });
+  } catch (error) {
+    console.error("Tax generation history failed:", error);
+    return res.status(500).json({ success: false, data: [], message: "Tax generation history failed." });
+  }
+}
+
+export async function taxGenerationBatchDetails(req, res) {
+  try {
+    const details = await getTaxGenerationBatchDetails(req.params.batchId);
+    if (!details) {
+      return res.status(404).json({ success: false, data: null, message: "Tax generation batch not found." });
+    }
+
+    return res.json({ success: true, data: details, message: "Tax generation batch loaded." });
+  } catch (error) {
+    console.error("Tax generation batch details failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Tax generation batch details failed." });
   }
 }

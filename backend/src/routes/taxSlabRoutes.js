@@ -7,8 +7,11 @@ import {
   deleteTaxPolicy,
   deleteTaxSlab,
   findTaxPolicy,
+  generateStoredTaxDeductions,
+  listTaxGenerationHistory,
   listTaxPolicies,
   listTaxSlabs,
+  taxGenerationBatchDetails,
   updateTaxPolicy,
   updateTaxSlab
 } from "../controllers/taxSlabController.js";
@@ -17,6 +20,9 @@ const router = Router();
 
 router.get("/", listTaxPolicies);
 router.get("/active", activeTaxPolicy);
+router.post("/generate-deductions", generateStoredTaxDeductions);
+router.get("/generation-history", listTaxGenerationHistory);
+router.get("/generation-history/:batchId", taxGenerationBatchDetails);
 router.get("/:id", findTaxPolicy);
 router.post("/", createTaxPolicy);
 router.put("/:id", updateTaxPolicy);

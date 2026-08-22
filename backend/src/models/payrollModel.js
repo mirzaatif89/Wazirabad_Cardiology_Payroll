@@ -2,8 +2,9 @@ import { pool } from "../config/database.js";
 import { env } from "../config/env.js";
 import { logAuditAction } from "./auditLogModel.js";
 import { createPayrollJournalEntry, getJournalEntryByPayrollRun, reversePayrollJournalEntryByRun } from "./journalModel.js";
-import { getActiveFiscalYear, getFiscalYearForDate } from "./fiscalYearModel.js";
-import { calculatePayrollTaxDeduction } from "./taxSlabModel.js";
+import { getEmployeeAdvanceRecoveryPlan, recordEmployeeAdvanceRecoveries, reverseEmployeeAdvanceRecoveriesByRun } from "./employeeAdvanceModel.js";
+import { getActiveFiscalYear, getFiscalYearById, getFiscalYearForDate } from "./fiscalYearModel.js";
+import { calculatePayrollTaxDeduction, getActiveTaxPolicy } from "./taxSlabModel.js";
 import { getWageCodeByCode } from "./wageCodeModel.js";
 
 const INCOME_TAX_WAGE_CODE = String(env.reportScheduleDefaults.incomeTax || "6002").trim();
@@ -99,8 +100,107 @@ export async function ensurePayrollTables() {
   `);
 }
 
+export async function ensurePayrollTaxSnapshotTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tax_generation_batches (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      fiscal_year_id INT NOT NULL,
+      payment_month INT NOT NULL,
+      payment_year INT NOT NULL,
+      dept_code VARCHAR(50) NOT NULL DEFAULT '999',
+      gaz_ng VARCHAR(30) NOT NULL DEFAULT 'A',
+      report_for VARCHAR(50) NOT NULL DEFAULT 'All',
+      generated_count INT NOT NULL DEFAULT 0,
+      total_tax DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      generated_by VARCHAR(100) NULL,
+      generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_tax_generation_batches_fiscal_year
+        FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id)
+        ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS employee_tax_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      employee_code VARCHAR(50) NOT NULL,
+      generation_batch_id INT NULL,
+      fiscal_year_id INT NOT NULL,
+      effective_from_month INT NOT NULL,
+      effective_from_year INT NOT NULL,
+      tax_policy_id INT NULL,
+      tax_policy_name VARCHAR(120) NULL,
+      tax_basis ENUM('annual','monthly') NULL,
+      gross_pay DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      taxable_income DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      annualized_income DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      effective_taxable_income DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      prior_employer_tax_credit DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      company_tax_paid_ytd DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      credit_balance DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      remaining_annual_tax DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      months_remaining INT NULL,
+      tax_amount DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      annual_amount DECIMAL(14, 2) NOT NULL DEFAULT 0,
+      slab_sr_no INT NULL,
+      slab_from_income DECIMAL(14, 2) NULL,
+      slab_to_income DECIMAL(14, 2) NULL,
+      slab_rate DECIMAL(6, 2) NULL,
+      slab_fixed_tax DECIMAL(14, 2) NULL,
+      status ENUM('active','superseded') NOT NULL DEFAULT 'active',
+      generated_by VARCHAR(100) NULL,
+      generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      superseded_at TIMESTAMP NULL,
+      CONSTRAINT fk_tax_snapshots_employee
+        FOREIGN KEY (employee_code) REFERENCES employees(employee_no)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+      CONSTRAINT fk_tax_snapshots_batch
+        FOREIGN KEY (generation_batch_id) REFERENCES tax_generation_batches(id)
+        ON DELETE SET NULL,
+      CONSTRAINT fk_tax_snapshots_fiscal_year
+        FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id)
+        ON DELETE CASCADE,
+      CONSTRAINT fk_tax_snapshots_policy
+        FOREIGN KEY (tax_policy_id) REFERENCES tax_policies(id)
+        ON DELETE SET NULL
+    )
+  `);
+
+  const [batchColumns] = await pool.query("SHOW COLUMNS FROM employee_tax_snapshots LIKE 'generation_batch_id'");
+  if (!batchColumns.length) {
+    await pool.query("ALTER TABLE employee_tax_snapshots ADD COLUMN generation_batch_id INT NULL AFTER employee_code");
+  }
+
+  const [batchConstraint] = await pool.query(
+    `
+      SELECT CONSTRAINT_NAME
+      FROM information_schema.TABLE_CONSTRAINTS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'employee_tax_snapshots'
+        AND CONSTRAINT_NAME = 'fk_tax_snapshots_batch'
+      LIMIT 1
+    `
+  );
+
+  if (!batchConstraint.length) {
+    await pool.query(`
+      ALTER TABLE employee_tax_snapshots
+      ADD CONSTRAINT fk_tax_snapshots_batch
+      FOREIGN KEY (generation_batch_id) REFERENCES tax_generation_batches(id)
+      ON DELETE SET NULL
+    `);
+  }
+}
+
 function monthEndDate(month, year) {
   return `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+}
+
+function toPeriodIndex(month, year) {
+  return Number(year) * 12 + Number(month);
 }
 
 function employeeWhere({ deptCode = "999", gazNg = "A", reportFor = "All" } = {}, alias = "e") {
@@ -184,6 +284,186 @@ async function tableExists(tableName, connection = pool) {
   return rows.length > 0;
 }
 
+async function getStoredEmployeeTaxSnapshot(employeeCode, fiscalYearId, paymentMonth, paymentYear, connection = pool) {
+  if (!employeeCode || !fiscalYearId) {
+    return null;
+  }
+
+  const [rows] = await connection.query(
+    `
+      SELECT
+        ets.id,
+        ets.employee_code AS employeeCode,
+        ets.fiscal_year_id AS fiscalYearId,
+        ets.effective_from_month AS effectiveFromMonth,
+        ets.effective_from_year AS effectiveFromYear,
+        ets.tax_policy_id AS taxPolicyId,
+        ets.tax_policy_name AS taxPolicyName,
+        ets.tax_basis AS taxBasis,
+        ets.gross_pay AS grossPay,
+        ets.taxable_income AS taxableIncome,
+        ets.annualized_income AS annualizedIncome,
+        ets.effective_taxable_income AS effectiveTaxableIncome,
+        ets.prior_employer_tax_credit AS priorEmployerTaxCredit,
+        ets.company_tax_paid_ytd AS companyTaxPaidYTD,
+        ets.credit_balance AS creditBalance,
+        ets.remaining_annual_tax AS remainingAnnualTax,
+        ets.months_remaining AS monthsRemaining,
+        ets.tax_amount AS taxAmount,
+        ets.annual_amount AS annualAmount,
+        ets.slab_sr_no AS slabSrNo,
+        ets.slab_from_income AS slabFromIncome,
+        ets.slab_to_income AS slabToIncome,
+        ets.slab_rate AS slabRate,
+        ets.slab_fixed_tax AS slabFixedTax,
+        ets.status,
+        ets.generated_by AS generatedBy,
+        ets.generated_at AS generatedAt
+      FROM employee_tax_snapshots ets
+      WHERE ets.employee_code = ?
+        AND ets.fiscal_year_id = ?
+        AND ets.status = 'active'
+        AND (
+          ets.effective_from_year < ?
+          OR (ets.effective_from_year = ? AND ets.effective_from_month <= ?)
+        )
+      ORDER BY ets.effective_from_year DESC, ets.effective_from_month DESC, ets.id DESC
+      LIMIT 1
+    `,
+    [String(employeeCode), fiscalYearId, Number(paymentYear), Number(paymentYear), Number(paymentMonth)]
+  );
+
+  const snapshot = rows[0];
+  if (!snapshot) {
+    return null;
+  }
+
+  const slab = snapshot.slabSrNo === null || snapshot.slabSrNo === undefined
+    ? null
+    : {
+        srNo: Number(snapshot.slabSrNo || 0),
+        fromIncome: Number(snapshot.slabFromIncome || 0),
+        toIncome: snapshot.slabToIncome === null || snapshot.slabToIncome === undefined ? null : Number(snapshot.slabToIncome),
+        rate: Number(snapshot.slabRate || 0),
+        fixedTax: Number(snapshot.slabFixedTax || 0)
+      };
+
+  return {
+    source: "stored",
+    snapshotId: snapshot.id,
+    amount: Number(snapshot.taxAmount || 0),
+    annualAmount: Number(snapshot.annualAmount || 0),
+    annualizedIncome: Number(snapshot.annualizedIncome || 0),
+    effectiveTaxableIncome: Number(snapshot.effectiveTaxableIncome || 0),
+    creditBalance: Number(snapshot.creditBalance || 0),
+    remainingAnnualTax: Number(snapshot.remainingAnnualTax || 0),
+    monthsRemaining: snapshot.monthsRemaining === null || snapshot.monthsRemaining === undefined ? null : Number(snapshot.monthsRemaining),
+    basis: snapshot.taxBasis || null,
+    taxableIncome: Number(snapshot.taxableIncome || 0),
+    policy: snapshot.taxPolicyId ? {
+      id: Number(snapshot.taxPolicyId),
+      name: snapshot.taxPolicyName || null,
+      basis: snapshot.taxBasis || null
+    } : null,
+    slab,
+    priorTaxCredit: Number(snapshot.priorEmployerTaxCredit || 0),
+    companyTaxPaidYTD: Number(snapshot.companyTaxPaidYTD || 0),
+    grossPay: Number(snapshot.grossPay || 0)
+  };
+}
+
+async function saveEmployeeTaxSnapshot({
+  connection = pool,
+  generationBatchId = null,
+  employeeCode,
+  fiscalYearId,
+  paymentMonth,
+  paymentYear,
+  taxResult,
+  grossPay,
+  priorEmployerTaxCredit,
+  companyTaxPaidYTD,
+  generatedBy = "Hospital Admin"
+}) {
+  if (!employeeCode || !fiscalYearId) {
+    return null;
+  }
+
+  await connection.query(
+    `
+      UPDATE employee_tax_snapshots
+      SET status = 'superseded',
+          superseded_at = CURRENT_TIMESTAMP
+      WHERE employee_code = ?
+        AND fiscal_year_id = ?
+        AND status = 'active'
+    `,
+    [String(employeeCode), fiscalYearId]
+  );
+
+  const [result] = await connection.query(
+    `
+      INSERT INTO employee_tax_snapshots (
+        employee_code,
+        generation_batch_id,
+        fiscal_year_id,
+        effective_from_month,
+        effective_from_year,
+        tax_policy_id,
+        tax_policy_name,
+        tax_basis,
+        gross_pay,
+        taxable_income,
+        annualized_income,
+        effective_taxable_income,
+        prior_employer_tax_credit,
+        company_tax_paid_ytd,
+        credit_balance,
+        remaining_annual_tax,
+        months_remaining,
+        tax_amount,
+        annual_amount,
+        slab_sr_no,
+        slab_from_income,
+        slab_to_income,
+        slab_rate,
+        slab_fixed_tax,
+        status,
+        generated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+    `,
+    [
+      String(employeeCode),
+      generationBatchId,
+      fiscalYearId,
+      Number(paymentMonth),
+      Number(paymentYear),
+      taxResult.policy?.id || null,
+      taxResult.policy?.name || null,
+      taxResult.basis || taxResult.policy?.basis || null,
+      roundCurrency(grossPay),
+      roundCurrency(taxResult.taxableIncome ?? grossPay),
+      roundCurrency(taxResult.annualizedIncome || 0),
+      roundCurrency(taxResult.effectiveTaxableIncome || 0),
+      roundCurrency(priorEmployerTaxCredit || 0),
+      roundCurrency(companyTaxPaidYTD || 0),
+      roundCurrency(taxResult.creditBalance || 0),
+      roundCurrency(taxResult.remainingAnnualTax || 0),
+      taxResult.monthsRemaining || null,
+      roundCurrency(taxResult.amount || 0),
+      roundCurrency(taxResult.annualAmount || 0),
+      taxResult.slab?.srNo || null,
+      taxResult.slab?.fromIncome ?? null,
+      taxResult.slab?.toIncome ?? null,
+      taxResult.slab?.rate ?? null,
+      taxResult.slab?.fixedTax ?? null,
+      generatedBy
+    ]
+  );
+
+  return result.insertId;
+}
+
 async function getEmployeeTaxPaidToDate(employeeCode, fiscalYearId, paymentMonth, paymentYear, connection = pool) {
   if (!fiscalYearId) {
     return 0;
@@ -218,7 +498,20 @@ function isDeductionWageCode(code) {
   return code >= 4001 && code <= 6999;
 }
 
-export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, paymentYear, connection = pool, fiscalYearId = null) {
+export async function calculateEmployeePayroll(
+  employeeOrCode,
+  paymentMonth,
+  paymentYear,
+  connection = pool,
+  fiscalYearId = null,
+  options = {}
+) {
+  const {
+    useStoredTax = true,
+    saveTaxSnapshot = false,
+    generatedBy = "Hospital Admin",
+    generationBatchId = null
+  } = options || {};
   const validDate = monthEndDate(paymentMonth, paymentYear);
   const employee = typeof employeeOrCode === "object"
     ? employeeOrCode
@@ -288,21 +581,58 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
   const grossPay = lines
     .filter((line) => isGrossWageCode(line.numericCode))
     .reduce((total, line) => total + line.amount, 0);
-  const otherDeductions = lines
-    .filter((line) => isDeductionWageCode(line.numericCode))
-    .reduce((total, line) => total + Math.abs(line.amount), 0);
   const taxWageCode = await getWageCodeByCode(INCOME_TAX_WAGE_CODE);
   const priorEmployerTaxCredit = Math.max(0, Number(employee.priorEmployerTaxCredit || 0));
   const companyTaxPaidYTD = await getEmployeeTaxPaidToDate(employee.employeeCode, fiscalYearId, paymentMonth, paymentYear, connection);
-  const taxResult = await calculatePayrollTaxDeduction({
-    fiscalYearId,
-    taxableIncome: grossPay,
+  const advanceRecoveryPlan = await getEmployeeAdvanceRecoveryPlan({
+    employeeCode: employee.employeeCode,
     paymentMonth,
     paymentYear,
-    priorTaxCredit: priorEmployerTaxCredit,
-    companyTaxPaidYTD,
     connection
   });
+  const advanceRecoveryLines = advanceRecoveryPlan.recoveries.map((recovery) => ({
+    wageCode: recovery.wageCode,
+    description: recovery.description,
+    amount: recovery.amount,
+    numericCode: recovery.numericCode,
+    attachedAccountCode: "C02836",
+    advanceId: recovery.advanceId
+  }));
+  const advanceRecoveryTotal = advanceRecoveryPlan.totalRecovery;
+  let taxResult = null;
+
+  if (useStoredTax) {
+    taxResult = await getStoredEmployeeTaxSnapshot(employee.employeeCode, fiscalYearId, paymentMonth, paymentYear, connection);
+  }
+
+  if (!taxResult) {
+    taxResult = await calculatePayrollTaxDeduction({
+      fiscalYearId,
+      taxableIncome: grossPay,
+      paymentMonth,
+      paymentYear,
+      priorTaxCredit: priorEmployerTaxCredit,
+      companyTaxPaidYTD,
+      connection
+    });
+  }
+
+  if (saveTaxSnapshot && taxResult?.source !== "stored") {
+    await saveEmployeeTaxSnapshot({
+      connection,
+      generationBatchId,
+      employeeCode: employee.employeeCode,
+      fiscalYearId,
+      paymentMonth,
+      paymentYear,
+      taxResult,
+      grossPay,
+      priorEmployerTaxCredit,
+      companyTaxPaidYTD,
+      generatedBy
+    });
+  }
+
   const taxAmount = Number(taxResult.amount || 0);
   const taxLine = taxAmount > 0 ? {
     wageCode: INCOME_TAX_WAGE_CODE,
@@ -311,7 +641,10 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
     numericCode: Number(INCOME_TAX_WAGE_CODE) || 0,
     attachedAccountCode: taxWageCode?.attachedAccountCode || null
   } : null;
-  const allDetails = taxLine ? [...lines, taxLine] : lines;
+  const allDetails = taxLine ? [...lines, ...advanceRecoveryLines, taxLine] : [...lines, ...advanceRecoveryLines];
+  const otherDeductions = allDetails
+    .filter((line) => isDeductionWageCode(line.numericCode))
+    .reduce((total, line) => total + Math.abs(line.amount), 0);
   const totalDeductions = otherDeductions + taxAmount;
   const netPay = grossPay - totalDeductions;
   const isBankSalary = Boolean(String(employee.bankCode || "").trim() && String(employee.accountNo || "").trim());
@@ -339,6 +672,8 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
       monthsRemaining: taxResult.monthsRemaining || null,
       amount: taxAmount,
       annualAmount: Number(taxResult.annualAmount || 0),
+      source: taxResult.source || "calculated",
+      snapshotId: taxResult.snapshotId || null,
       slab: taxResult.slab
         ? {
             srNo: Number(taxResult.slab.srNo || 0),
@@ -348,7 +683,9 @@ export async function calculateEmployeePayroll(employeeOrCode, paymentMonth, pay
             fixedTax: Number(taxResult.slab.fixedTax || 0)
           }
         : null
-    }
+    },
+    advanceRecoveries: advanceRecoveryPlan.recoveries,
+    advanceRecoveryTotal
   };
 }
 
@@ -381,6 +718,16 @@ export async function previewPayroll({ paymentMonth, paymentYear, deptCode = "99
   const matchedFiscalYear = await getFiscalYearForDate(validDate, connection);
   const activeFiscalYear = matchedFiscalYear || await getActiveFiscalYear(connection);
   const fiscalYearId = activeFiscalYear?.id || null;
+  const [[existingRun]] = await connection.query(
+    `
+      SELECT id, status
+      FROM payroll_runs
+      WHERE payment_month = ? AND payment_year = ? AND dept_code = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [paymentMonth, paymentYear, String(deptCode)]
+  );
   const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor, activeOnDate: validDate });
   const results = [];
 
@@ -417,6 +764,13 @@ export async function previewPayroll({ paymentMonth, paymentYear, deptCode = "99
     fiscalYearId,
     fiscalYear: activeFiscalYear,
     fiscalYearName: activeFiscalYear?.name || null,
+    existingRunId: existingRun?.id || null,
+    existingRunStatus: existingRun?.status || null,
+    warningMessage: existingRun
+      ? existingRun.status === "draft"
+        ? "A draft payroll run already exists for this period. Posting again will replace its payroll journal."
+        : "Payroll has already been posted for this period. Review the existing run before posting again."
+      : null,
     paymentMonth,
     paymentYear,
     deptCode: String(deptCode),
@@ -432,6 +786,271 @@ export async function previewPayroll({ paymentMonth, paymentYear, deptCode = "99
     taxTotal: totals.taxAmount,
     taxPolicyName: previewTaxSource?.taxPolicyName || null,
     taxBasis: previewTaxSource?.taxPreview?.taxBasis || null
+  };
+}
+
+export async function generateStoredPayrollTax({
+  paymentMonth,
+  paymentYear,
+  fiscalYearId = null,
+  deptCode = "999",
+  gazNg = "A",
+  reportFor = "All",
+  generatedBy = "Hospital Admin"
+}) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const validDate = monthEndDate(paymentMonth, paymentYear);
+    const matchedFiscalYear = fiscalYearId ? await getFiscalYearById(fiscalYearId) : await getFiscalYearForDate(validDate, connection);
+    const activeFiscalYear = matchedFiscalYear || await getActiveFiscalYear(connection);
+    const resolvedFiscalYearId = activeFiscalYear?.id || null;
+
+    if (!resolvedFiscalYearId) {
+      await connection.rollback();
+      return {
+        status: "error",
+        generatedCount: 0,
+        totalTax: 0,
+        message: "No fiscal year is available for tax generation."
+      };
+    }
+
+    const policy = await getActiveTaxPolicy(resolvedFiscalYearId, connection);
+
+    if (!policy) {
+      await connection.rollback();
+      return {
+        status: "error",
+        generatedCount: 0,
+        totalTax: 0,
+        fiscalYearId: resolvedFiscalYearId,
+        fiscalYearName: activeFiscalYear?.name || null,
+        message: "Active tax policy not found for the selected fiscal year."
+      };
+    }
+
+    const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor, activeOnDate: validDate });
+    const [batchResult] = await connection.query(
+      `
+        INSERT INTO tax_generation_batches (
+          fiscal_year_id,
+          payment_month,
+          payment_year,
+          dept_code,
+          gaz_ng,
+          report_for,
+          generated_count,
+          total_tax,
+          generated_by
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+      `,
+      [
+        resolvedFiscalYearId,
+        Number(paymentMonth),
+        Number(paymentYear),
+        String(deptCode),
+        String(gazNg),
+        String(reportFor),
+        generatedBy
+      ]
+    );
+    const generationBatchId = batchResult.insertId;
+    let generatedCount = 0;
+    let totalTax = 0;
+    const sample = [];
+
+    for (const employee of employees) {
+      const calculated = await calculateEmployeePayroll(
+        employee,
+        paymentMonth,
+        paymentYear,
+        connection,
+        resolvedFiscalYearId,
+        { useStoredTax: false, saveTaxSnapshot: true, generatedBy, generationBatchId }
+      );
+
+      generatedCount += 1;
+      totalTax += Number(calculated.taxAmount || 0);
+
+      if (sample.length < 5) {
+        sample.push({
+          employeeCode: employee.employeeCode,
+          name: employee.name,
+          taxAmount: Number(calculated.taxAmount || 0),
+          annualizedIncome: Number(calculated.taxPreview?.annualizedIncome || 0),
+          taxPolicyName: calculated.taxPolicyName || null,
+          slab: calculated.taxPreview?.slab || null
+        });
+      }
+    }
+
+    await connection.query(
+      "UPDATE tax_generation_batches SET generated_count = ?, total_tax = ? WHERE id = ?",
+      [generatedCount, roundCurrency(totalTax), generationBatchId]
+    );
+
+    await connection.commit();
+
+    return {
+      status: "generated",
+      generationBatchId,
+      fiscalYearId: resolvedFiscalYearId,
+      fiscalYearName: activeFiscalYear?.name || null,
+      paymentMonth: Number(paymentMonth),
+      paymentYear: Number(paymentYear),
+      deptCode: String(deptCode),
+      generatedCount,
+      totalTax: roundCurrency(totalTax),
+      generatedBy,
+      sample
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getTaxGenerationHistory({ fiscalYearId = "", limit = 50 } = {}, connection = pool) {
+  const params = [];
+  const where = [];
+
+  if (fiscalYearId) {
+    where.push("tgb.fiscal_year_id = ?");
+    params.push(fiscalYearId);
+  }
+
+  params.push(Number(limit) || 50);
+
+  const [rows] = await connection.query(
+    `
+      SELECT
+        tgb.id,
+        tgb.fiscal_year_id AS fiscalYearId,
+        fy.name AS fiscalYearName,
+        tgb.payment_month AS paymentMonth,
+        tgb.payment_year AS paymentYear,
+        tgb.dept_code AS deptCode,
+        tgb.gaz_ng AS gazNg,
+        tgb.report_for AS reportFor,
+        tgb.generated_count AS generatedCount,
+        tgb.total_tax AS totalTax,
+        tgb.generated_by AS generatedBy,
+        tgb.generated_at AS generatedAt
+      FROM tax_generation_batches tgb
+      INNER JOIN fiscal_years fy ON fy.id = tgb.fiscal_year_id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY tgb.generated_at DESC, tgb.id DESC
+      LIMIT ?
+    `,
+    params
+  );
+
+  return rows;
+}
+
+export async function getTaxGenerationBatchDetails(batchId, connection = pool) {
+  if (!batchId) {
+    return null;
+  }
+
+  const [[batch]] = await connection.query(
+    `
+      SELECT
+        tgb.id,
+        tgb.fiscal_year_id AS fiscalYearId,
+        fy.name AS fiscalYearName,
+        tgb.payment_month AS paymentMonth,
+        tgb.payment_year AS paymentYear,
+        tgb.dept_code AS deptCode,
+        tgb.gaz_ng AS gazNg,
+        tgb.report_for AS reportFor,
+        tgb.generated_count AS generatedCount,
+        tgb.total_tax AS totalTax,
+        tgb.generated_by AS generatedBy,
+        tgb.generated_at AS generatedAt
+      FROM tax_generation_batches tgb
+      INNER JOIN fiscal_years fy ON fy.id = tgb.fiscal_year_id
+      WHERE tgb.id = ?
+      LIMIT 1
+    `,
+    [batchId]
+  );
+
+  if (!batch) {
+    return null;
+  }
+
+  const [rows] = await connection.query(
+    `
+      SELECT
+        ets.id,
+        ets.employee_code AS employeeCode,
+        e.name AS employeeName,
+        e.department AS employeeDepartment,
+        e.designation AS employeeDesignation,
+        ets.gross_pay AS grossPay,
+        ets.taxable_income AS taxableIncome,
+        ets.annualized_income AS annualizedIncome,
+        ets.effective_taxable_income AS effectiveTaxableIncome,
+        ets.prior_employer_tax_credit AS priorEmployerTaxCredit,
+        ets.company_tax_paid_ytd AS companyTaxPaidYTD,
+        ets.credit_balance AS creditBalance,
+        ets.remaining_annual_tax AS remainingAnnualTax,
+        ets.months_remaining AS monthsRemaining,
+        ets.tax_amount AS taxAmount,
+        ets.annual_amount AS annualAmount,
+        ets.tax_policy_name AS taxPolicyName,
+        ets.tax_basis AS taxBasis,
+        ets.slab_sr_no AS slabSrNo,
+        ets.slab_from_income AS slabFromIncome,
+        ets.slab_to_income AS slabToIncome,
+        ets.slab_rate AS slabRate,
+        ets.slab_fixed_tax AS slabFixedTax,
+        ets.generated_by AS generatedBy,
+        ets.generated_at AS generatedAt
+      FROM employee_tax_snapshots ets
+      LEFT JOIN employees e ON e.employee_no = ets.employee_code
+      WHERE ets.generation_batch_id = ?
+      ORDER BY CAST(ets.employee_code AS UNSIGNED), ets.employee_code
+    `,
+    [batchId]
+  );
+
+  const snapshots = rows.map((row) => ({
+    ...row,
+    grossPay: Number(row.grossPay || 0),
+    taxableIncome: Number(row.taxableIncome || 0),
+    annualizedIncome: Number(row.annualizedIncome || 0),
+    effectiveTaxableIncome: Number(row.effectiveTaxableIncome || 0),
+    priorEmployerTaxCredit: Number(row.priorEmployerTaxCredit || 0),
+    companyTaxPaidYTD: Number(row.companyTaxPaidYTD || 0),
+    creditBalance: Number(row.creditBalance || 0),
+    remainingAnnualTax: Number(row.remainingAnnualTax || 0),
+    monthsRemaining: row.monthsRemaining === null || row.monthsRemaining === undefined ? null : Number(row.monthsRemaining),
+    taxAmount: Number(row.taxAmount || 0),
+    annualAmount: Number(row.annualAmount || 0),
+    slab: row.slabSrNo === null || row.slabSrNo === undefined
+      ? null
+      : {
+          srNo: Number(row.slabSrNo || 0),
+          fromIncome: Number(row.slabFromIncome || 0),
+          toIncome: row.slabToIncome === null || row.slabToIncome === undefined ? null : Number(row.slabToIncome),
+          rate: Number(row.slabRate || 0),
+          fixedTax: Number(row.slabFixedTax || 0)
+        }
+  }));
+
+  return {
+    batch: {
+      ...batch,
+      generatedCount: Number(batch.generatedCount || 0),
+      totalTax: Number(batch.totalTax || 0)
+    },
+    snapshots
   };
 }
 
@@ -502,6 +1121,19 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
           calculated.isBankSalary ? 1 : 0
         ]
       );
+
+      if (Array.isArray(calculated.advanceRecoveries) && calculated.advanceRecoveries.length) {
+        await recordEmployeeAdvanceRecoveries({
+          connection,
+          payrollRunId: runId,
+          payrollRunItemId: itemResult.insertId,
+          employeeCode: employee.employeeCode,
+          paymentMonth,
+          paymentYear,
+          recoveries: calculated.advanceRecoveries,
+          createdBy: processedBy
+        });
+      }
 
       const cleanDetails = calculated.details.filter((detail) => detail.amount !== 0);
       if (cleanDetails.length) {
@@ -752,6 +1384,7 @@ export async function reopenPayrollRun(id) {
     const runStatus = String(run.status || "").toLowerCase();
     if (runStatus === "processed" || runStatus === "locked") {
       await reversePayrollJournalEntryByRun(id, connection, "Hospital Admin");
+      await reverseEmployeeAdvanceRecoveriesByRun(id, "Hospital Admin", connection);
     }
     await connection.query("UPDATE payroll_runs SET status = 'draft', processed_at = NULL WHERE id = ?", [id]);
     await logAuditAction({
@@ -787,6 +1420,7 @@ export async function voidPayrollRun(id, voidedBy = "Hospital Admin") {
     }
 
     const journal = await reversePayrollJournalEntryByRun(id, connection, voidedBy);
+    await reverseEmployeeAdvanceRecoveriesByRun(id, voidedBy, connection);
 
     await connection.query("UPDATE payroll_runs SET status = 'void', processed_at = NULL WHERE id = ?", [id]);
     await logAuditAction({

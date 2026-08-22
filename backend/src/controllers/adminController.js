@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { env } from "../config/env.js";
 import { verifyAdminPassword } from "../models/authModel.js";
 
 const RESET_TABLES = [
@@ -33,7 +34,7 @@ export async function resetData(req, res) {
     return res.status(400).json({ message: "Admin password is required." });
   }
 
-  const admin = await verifyAdminPassword("admin", password);
+  const admin = await verifyAdminPassword(env.adminUsername || "admin", password);
 
   if (!admin) {
     return res.status(401).json({ message: "Invalid admin password." });

@@ -75,6 +75,7 @@ export const sidebarSections = [
       "Accounts Code List",
       "Wage Type Code List",
       "Fiscal Year Settings",
+      "Employee Advances",
       "Tax Slab Settings",
       "Reset Data",
       "Password Change",

@@ -4,8 +4,6 @@ import { pool } from "../config/database.js";
 import { env } from "../config/env.js";
 
 const scrypt = promisify(scryptCallback);
-const DEFAULT_ADMIN_PASSWORD = "admin123";
-
 async function hashPassword(password, salt = randomBytes(16).toString("hex")) {
   const derivedKey = await scrypt(password, salt, 64);
   return `${salt}:${derivedKey.toString("hex")}`;
@@ -43,17 +41,22 @@ export async function ensureAdminUsersTable() {
     await pool.query("ALTER TABLE admin_users ADD COLUMN email VARCHAR(150) NULL AFTER role");
   }
 
-  const [rows] = await pool.query("SELECT id FROM admin_users WHERE username = ? LIMIT 1", ["admin"]);
+  const adminUsername = env.adminUsername || "admin";
+  const adminName = env.adminName || "Hospital Admin";
+  const adminPassword = env.adminPassword || "admin123";
+
+  const [rows] = await pool.query("SELECT id FROM admin_users WHERE username = ? LIMIT 1", [adminUsername]);
 
   if (!rows.length) {
     await pool.query(
       "INSERT INTO admin_users (username, name, role, email, password_hash) VALUES (?, ?, ?, ?, ?)",
-      ["admin", "Hospital Admin", "admin", env.adminEmail || null, await hashPassword(DEFAULT_ADMIN_PASSWORD)]
+      [adminUsername, adminName, "admin", env.adminEmail || null, await hashPassword(adminPassword)]
     );
   } else if (env.adminEmail) {
-    await pool.query("UPDATE admin_users SET email = ? WHERE username = ? AND (email IS NULL OR email = '')", [
+    await pool.query("UPDATE admin_users SET email = ?, name = ? WHERE username = ? AND (email IS NULL OR email = '' OR name IS NULL OR name = '')", [
       env.adminEmail,
-      "admin"
+      adminName,
+      adminUsername
     ]);
   }
 
