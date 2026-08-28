@@ -102,32 +102,44 @@ app.use("/api/wage-codes", wageCodeRoutes);
 
 async function startServer() {
   try {
-    await ensureAdminUsersTable();
-    await ensureChartOfAccountsTable();
-    await ensureFiscalYearsTable();
-    await ensureJournalTables();
-    await ensureAccountCodesTable();
-    await ensureBankTables();
-    await ensureDepartmentsTable();
-    await ensureDesignationsTable();
-    await ensureEmployeesTable();
-    await ensureEmployeeScaleHistoryTable();
-    await ensureEmployeeStatusHistoryTable();
-    await ensureAllowancesTable();
-    await ensureWageCodesTable();
-    await ensureMprocessTables();
-    await ensureTaxSlabTables();
-    await ensurePayrollTables();
-    await ensurePayrollTaxSnapshotTables();
-    await ensureEmployeeAdvanceTables();
-    await ensureTransactionTables();
-    await ensureArrearBillTables();
-    await ensureArrearPaymentTables();
-    await ensureBudgetTransactionTables();
-    await ensureAuditLogTable();
+    const initializationSteps = [
+      ["admin users", ensureAdminUsersTable],
+      ["chart of accounts", ensureChartOfAccountsTable],
+      ["fiscal years", ensureFiscalYearsTable],
+      ["account codes", ensureAccountCodesTable],
+      ["banks", ensureBankTables],
+      ["departments", ensureDepartmentsTable],
+      ["designations", ensureDesignationsTable],
+      ["employees", ensureEmployeesTable],
+      ["employee scale history", ensureEmployeeScaleHistoryTable],
+      ["employee status history", ensureEmployeeStatusHistoryTable],
+      ["allowances", ensureAllowancesTable],
+      ["wage codes", ensureWageCodesTable],
+      ["m-process", ensureMprocessTables],
+      ["tax slabs", ensureTaxSlabTables],
+      ["payroll", ensurePayrollTables],
+      ["payroll tax snapshots", ensurePayrollTaxSnapshotTables],
+      ["journals", ensureJournalTables],
+      ["employee advances", ensureEmployeeAdvanceTables],
+      ["transactions", ensureTransactionTables],
+      ["arrear bills", ensureArrearBillTables],
+      ["arrear payments", ensureArrearPaymentTables],
+      ["budget transactions", ensureBudgetTransactionTables],
+      ["audit log", ensureAuditLogTable]
+    ];
+
+    for (const [name, initialize] of initializationSteps) {
+      try {
+        await initialize();
+      } catch (error) {
+        throw new Error(`${name} initialization failed: ${error.message}`);
+      }
+    }
+
     console.log("Payroll database tables are ready.");
   } catch (error) {
     console.error("Database initialization failed:", error.message);
+    process.exit(1);
   }
 
   app.listen(env.port, () => {
