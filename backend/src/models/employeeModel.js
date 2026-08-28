@@ -1,5 +1,18 @@
 import { pool } from "../config/database.js";
 
+let employeesSchemaPromise;
+
+async function ensureEmployeesSchemaReady() {
+  if (!employeesSchemaPromise) {
+    employeesSchemaPromise = ensureEmployeesTable().catch((error) => {
+      employeesSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  return employeesSchemaPromise;
+}
+
 export async function ensureEmployeesTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -120,6 +133,7 @@ export async function ensureEmployeeStatusHistoryTable() {
 }
 
 export async function insertEmployee(employee) {
+  await ensureEmployeesSchemaReady();
   const toNull = (value) => (value === "" || value === undefined ? null : value);
 
   const [result] = await pool.query(
@@ -199,6 +213,7 @@ export async function insertEmployee(employee) {
 }
 
 export async function getEmployees() {
+  await ensureEmployeesSchemaReady();
   const [rows] = await pool.query(`
     SELECT
       id,
@@ -243,6 +258,7 @@ export async function getEmployees() {
 }
 
 export async function getNextEmployeeNo() {
+  await ensureEmployeesSchemaReady();
   const [[row]] = await pool.query(`
     SELECT
       COALESCE(MAX(CAST(employee_no AS UNSIGNED)), 0) AS maxEmployeeNo,
@@ -258,6 +274,7 @@ export async function getNextEmployeeNo() {
 }
 
 export async function getEmployeeByCode(employeeNo) {
+  await ensureEmployeesSchemaReady();
   const [rows] = await pool.query(
     `
       SELECT
@@ -305,6 +322,7 @@ export async function getEmployeeByCode(employeeNo) {
 }
 
 export async function updateEmployeeById(id, employee) {
+  await ensureEmployeesSchemaReady();
   const toNull = (value) => (value === "" || value === undefined ? null : value);
   const [[existingEmployee]] = await pool.query(
     "SELECT employee_no AS employeeNo, bps, status FROM employees WHERE id = ? LIMIT 1",
@@ -425,6 +443,7 @@ export async function updateEmployeeById(id, employee) {
 }
 
 export async function deleteEmployeeById(id) {
+  await ensureEmployeesSchemaReady();
   const connection = await pool.getConnection();
 
   try {
@@ -476,3 +495,4 @@ export async function deleteEmployeeById(id) {
     connection.release();
   }
 }
+
