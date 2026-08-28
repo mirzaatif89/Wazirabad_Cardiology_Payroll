@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "83663bc783c2db91f3762613fb94b9fc3913768a",
+    "indexed_at": "2026-08-28T05:13:57Z",
+    "project": "Wazirabad_Cardiology_Payroll",
+    "nodes": 1401,
+    "edges": 4827,
+    "original_size": 5636096,
+    "compressed_size": 815767,
+    "compression_level": 9
+}

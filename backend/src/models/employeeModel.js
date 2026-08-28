@@ -41,46 +41,47 @@ export async function ensureEmployeesTable() {
     )
   `);
 
-  const [departmentCodeColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'department_code'");
+  const employeeColumns = [
+    { name: "father_name", definition: "VARCHAR(150) NULL", after: "name" },
+    { name: "email", definition: "VARCHAR(150) NULL", after: "father_name" },
+    { name: "address", definition: "TEXT NULL", after: "email" },
+    { name: "contact_no", definition: "VARCHAR(50) NULL", after: "address" },
+    { name: "cnic_no", definition: "VARCHAR(50) NULL", after: "contact_no" },
+    { name: "old_personnel_no", definition: "VARCHAR(50) NULL", after: "cnic_no" },
+    { name: "place_of_posting", definition: "VARCHAR(150) NULL", after: "old_personnel_no" },
+    { name: "designation_code", definition: "VARCHAR(50) NULL", after: "place_of_posting" },
+    { name: "designation", definition: "VARCHAR(150) NULL", after: "designation_code" },
+    { name: "bps", definition: "VARCHAR(30) NULL", after: "designation" },
+    { name: "gaz_ng", definition: "VARCHAR(30) NULL", after: "bps" },
+    { name: "date_of_birth", definition: "DATE NULL", after: "gaz_ng" },
+    { name: "date_of_joining", definition: "DATE NULL", after: "date_of_birth" },
+    { name: "prior_employer_tax_credit", definition: "DECIMAL(12, 2) NOT NULL DEFAULT 0", after: "date_of_joining" },
+    { name: "department_code", definition: "VARCHAR(50) NULL", after: "prior_employer_tax_credit" },
+    { name: "department", definition: "VARCHAR(150) NULL", after: "department_code" },
+    { name: "service_type", definition: "VARCHAR(100) NULL", after: "department" },
+    { name: "bank_code", definition: "VARCHAR(50) NULL", after: "service_type" },
+    { name: "bank", definition: "VARCHAR(150) NULL", after: "bank_code" },
+    { name: "bank_branch_code", definition: "VARCHAR(50) NULL", after: "bank" },
+    { name: "bank_branch", definition: "VARCHAR(150) NULL", after: "bank_branch_code" },
+    { name: "account_no", definition: "VARCHAR(100) NULL", after: "bank_branch" },
+    { name: "gpf_account_no", definition: "VARCHAR(100) NULL", after: "account_no" },
+    { name: "ntn_no", definition: "VARCHAR(100) NULL", after: "gpf_account_no" },
+    { name: "pghsf_no", definition: "VARCHAR(100) NULL", after: "ntn_no" },
+    { name: "religion", definition: "VARCHAR(80) NULL", after: "pghsf_no" },
+    { name: "sap_no", definition: "VARCHAR(100) NULL", after: "religion" },
+    { name: "status", definition: "ENUM('active','inactive') DEFAULT 'active'", after: "sap_no" },
+    { name: "stop_date", definition: "DATE NULL", after: "status" },
+    { name: "special_designation", definition: "VARCHAR(150) NULL", after: "stop_date" },
+    { name: "created_at", definition: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", after: "special_designation" },
+    { name: "updated_at", definition: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", after: "created_at" }
+  ];
 
-  if (!departmentCodeColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN department_code VARCHAR(50) NULL AFTER date_of_joining");
-  }
+  for (const column of employeeColumns) {
+    const [columns] = await pool.query("SHOW COLUMNS FROM employees LIKE ?", [column.name]);
 
-  const [priorEmployerTaxCreditColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'prior_employer_tax_credit'");
-
-  if (!priorEmployerTaxCreditColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN prior_employer_tax_credit DECIMAL(12, 2) NOT NULL DEFAULT 0 AFTER date_of_joining");
-  }
-
-  const [designationCodeColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'designation_code'");
-
-  if (!designationCodeColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN designation_code VARCHAR(50) NULL AFTER place_of_posting");
-  }
-
-  const [bankCodeColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'bank_code'");
-
-  if (!bankCodeColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN bank_code VARCHAR(50) NULL AFTER service_type");
-  }
-
-  const [bankBranchCodeColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'bank_branch_code'");
-
-  if (!bankBranchCodeColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN bank_branch_code VARCHAR(50) NULL AFTER bank");
-  }
-
-  const [bankBranchColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'bank_branch'");
-
-  if (!bankBranchColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN bank_branch VARCHAR(150) NULL AFTER bank_branch_code");
-  }
-
-  const [statusColumns] = await pool.query("SHOW COLUMNS FROM employees LIKE 'status'");
-
-  if (!statusColumns.length) {
-    await pool.query("ALTER TABLE employees ADD COLUMN status ENUM('active','inactive') DEFAULT 'active' AFTER sap_no");
+    if (!columns.length) {
+      await pool.query(`ALTER TABLE employees ADD COLUMN ${column.name} ${column.definition} AFTER ${column.after}`);
+    }
   }
 }
 
