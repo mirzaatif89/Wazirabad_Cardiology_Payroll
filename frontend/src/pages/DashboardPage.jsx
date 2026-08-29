@@ -447,10 +447,13 @@ function getFiscalYearRangeFields(fiscalYear) {
 }
 
 function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
+  const [showHelp, setShowHelp] = useState(false);
+
   if (!lookup) {
     return null;
   }
 
+  const isBranchLookup = lookup.fieldName === "bankBranchCode";
   const filteredRows = filterEmployeeCodeLookupRows(lookup.rows, search);
 
   return (
@@ -461,8 +464,32 @@ function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }
             <p>{lookup.eyebrow}</p>
             <h3>{lookup.title}</h3>
           </div>
-          <button type="button" onClick={onClose}>Close</button>
+          <div className="lookup-head-actions">
+            {isBranchLookup ? (
+              <button
+                type="button"
+                className="lookup-help-button"
+                aria-label="Show bank account and branch code setup steps"
+                aria-expanded={showHelp}
+                onClick={() => setShowHelp((current) => !current)}
+              >
+                ?
+              </button>
+            ) : null}
+            <button type="button" onClick={onClose}>Close</button>
+          </div>
         </div>
+        {isBranchLookup && showHelp ? (
+          <aside className="lookup-help-card" aria-label="Bank account setup steps">
+            <strong>Where to add bank account details</strong>
+            <ol>
+              <li>Open Management then Bank Code Making/Edit and add the bank code/name.</li>
+              <li>Open Management then Bank Branch Code Making/Edit and add the branch code/name.</li>
+              <li>Open New Employee Entry or Employee List edit, select Bank Code and Branch Code, then enter Account No.</li>
+              <li>Save the employee. Payroll and bank reports will read the saved bank details from the employee record.</li>
+            </ol>
+          </aside>
+        ) : null}
         <input
           type="search"
           value={search}

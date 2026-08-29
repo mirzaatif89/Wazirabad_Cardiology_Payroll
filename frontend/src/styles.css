@@ -2489,6 +2489,12 @@ h1 {
   align-items: start;
 }
 
+.lookup-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .wage-code-lookup-head p {
   margin: 0 0 3px;
   color: #607478;
@@ -2512,6 +2518,49 @@ h1 {
   background: #0b746b;
   font-weight: 650;
   cursor: pointer;
+}
+
+.wage-code-lookup-head .lookup-help-button {
+  width: 34px;
+  padding: 0;
+  border: 1px solid #b9d7d2;
+  color: #0b746b;
+  background: #effaf7;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.wage-code-lookup-head .lookup-help-button:hover,
+.wage-code-lookup-head .lookup-help-button:focus-visible {
+  color: #ffffff;
+  background: #0b746b;
+  outline: 0;
+}
+
+.lookup-help-card {
+  padding: 12px 14px;
+  border: 1px solid #cbe4df;
+  border-radius: 8px;
+  color: #24464a;
+  background: #f3fbf8;
+  box-shadow: inset 3px 0 0 #0b746b;
+}
+
+.lookup-help-card strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #123438;
+}
+
+.lookup-help-card ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.lookup-help-card li {
+  margin: 4px 0;
+  line-height: 1.45;
 }
 
 .wage-code-lookup-modal > input {
