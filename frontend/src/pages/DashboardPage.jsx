@@ -2502,6 +2502,7 @@ function WageCodeMaster() {
   const [toast, setToast] = useState({ type: "", message: "" });
   const [saving, setSaving] = useState(false);
   const derivedCategory = deriveWageCategory(form.code);
+  const hasWageCodeInput = form.code.trim().length > 0;
   const isEditMode = Boolean(editingCode);
 
   const showToast = (type, message) => {
@@ -2724,8 +2725,8 @@ function WageCodeMaster() {
 
         <div className="wage-category-preview">
           <span>Derived Category</span>
-          <strong className={derivedCategory ? "valid" : "invalid"}>
-            {derivedCategory || "Invalid / not in range"}
+          <strong className={derivedCategory ? "valid" : hasWageCodeInput ? "invalid" : "neutral"}>
+            {derivedCategory || (hasWageCodeInput ? "Invalid / not in range" : "Enter wage code")}
           </strong>
         </div>
 

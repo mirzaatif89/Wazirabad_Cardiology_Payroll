@@ -1322,6 +1322,11 @@ h1 {
   background: #dcf7e9;
 }
 
+.wage-category-preview strong.neutral {
+  color: #607478;
+  background: #edf4f2;
+}
+
 .wage-category-preview strong.invalid {
   color: #9b1c24;
   background: #fde4e7;
