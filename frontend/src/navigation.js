@@ -29,16 +29,36 @@ export const sidebarSections = [
   {
     title: "Payroll",
     items: [
-      "Budget Requirement",
-      "Bank Summary",
-      "Non Bank Salary",
-      "Grand Bank Summary",
-      "Payment List",
-      "Payroll",
-      "List Of Payment",
-      "Scale Audit Register",
-      "Pay Slips",
-      "Single Pay Slips"
+      {
+        label: "Run Payroll",
+        items: [
+          "Payroll",
+          "Budget Requirement"
+        ]
+      },
+      {
+        label: "Bank Payments",
+        items: [
+          "Bank Summary",
+          "Non Bank Salary",
+          "Grand Bank Summary"
+        ]
+      },
+      {
+        label: "Payment Reports",
+        items: [
+          "Payment List",
+          "List Of Payment"
+        ]
+      },
+      {
+        label: "Payslips & Audit",
+        items: [
+          "Pay Slips",
+          "Single Pay Slips",
+          "Scale Audit Register"
+        ]
+      }
     ]
   },
   {
