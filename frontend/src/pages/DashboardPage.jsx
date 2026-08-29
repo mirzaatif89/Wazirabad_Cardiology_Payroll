@@ -148,6 +148,10 @@ const sidebarSections = navigationSections.map((section) => ({
   icon: sectionIcons[section.title] || Home
 }));
 
+function getSidebarSectionPages(section) {
+  return section.items.flatMap((item) => (typeof item === "string" ? [item] : item.items || []));
+}
+
 const newEmployeeFields = [
   { label: "Employee No.", name: "employeeNo" },
   { label: "Name", name: "name" },
@@ -10638,7 +10642,7 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
   };
 
   useEffect(() => {
-    const section = sidebarSections.find((item) => item.items.includes(activeItem));
+    const section = sidebarSections.find((item) => getSidebarSectionPages(item).includes(activeItem));
 
     if (section) {
       setOpenSection(section.title);
@@ -10712,16 +10716,36 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
 
                 {section.items.length && isOpen ? (
                   <div className="nav-submenu">
-                    {section.items.map((item) => (
-                      <button
-                        className={activeItem === item ? "active" : ""}
-                        key={item}
-                        type="button"
-                        onClick={() => navigateToPage(item)}
-                      >
-                        {item}
-                      </button>
-                    ))}
+                    {section.items.map((item) => {
+                      if (typeof item === "string") {
+                        return (
+                          <button
+                            className={activeItem === item ? "active" : ""}
+                            key={item}
+                            type="button"
+                            onClick={() => navigateToPage(item)}
+                          >
+                            {item}
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <div className="nav-subgroup" key={item.label}>
+                          <p>{item.label}</p>
+                          {(item.items || []).map((subItem) => (
+                            <button
+                              className={activeItem === subItem ? "active" : ""}
+                              key={subItem}
+                              type="button"
+                              onClick={() => navigateToPage(subItem)}
+                            >
+                              {subItem}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>

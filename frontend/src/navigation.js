@@ -68,18 +68,38 @@ export const sidebarSections = [
   {
     title: "Management",
     items: [
-      "Department Code List",
-      "Designation Code List",
-      "Bank Branch Code List",
-      "Bank Code List",
-      "Accounts Code List",
-      "Wage Type Code List",
-      "Fiscal Year Settings",
-      "Employee Advances",
-      "Tax Slab Settings",
-      "Reset Data",
-      "Password Change",
-      "Clear Password"
+      {
+        label: "Departments",
+        items: [
+          "Department Code List",
+          "Designation Code List"
+        ]
+      },
+      {
+        label: "Banks",
+        items: [
+          "Bank Code List",
+          "Bank Branch Code List"
+        ]
+      },
+      {
+        label: "Payroll Setup",
+        items: [
+          "Accounts Code List",
+          "Wage Type Code List",
+          "Fiscal Year Settings",
+          "Tax Slab Settings",
+          "Employee Advances"
+        ]
+      },
+      {
+        label: "Admin",
+        items: [
+          "Reset Data",
+          "Password Change",
+          "Clear Password"
+        ]
+      }
     ]
   }
 ];
@@ -94,11 +114,17 @@ const slugify = (value) =>
 export const pageSlugMap = sidebarSections.reduce(
   (result, section) => {
     result[section.title] = slugify(section.title);
+
     section.items.forEach((item) => {
-      if (!result[item]) {
-        result[item] = slugify(item);
-      }
+      const pages = typeof item === "string" ? [item] : item.items || [];
+
+      pages.forEach((page) => {
+        if (!result[page]) {
+          result[page] = slugify(page);
+        }
+      });
     });
+
     return result;
   },
   { Dashboard: "index" }
