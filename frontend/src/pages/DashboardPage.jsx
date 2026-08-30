@@ -9024,6 +9024,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   const [loading, setLoading] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState(null);
   const [historyFilters, setHistoryFilters] = useState({ search: "", status: "all" });
+  const [showPayrollGuide, setShowPayrollGuide] = useState(false);
   const fiscalYear = fiscalYears.find((record) => String(record.id) === String(selectedFiscalYearId))
     || activeFiscalYear
     || getPayrollFiscalYearRecord();
@@ -9398,10 +9399,40 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
         <div className="title-actions no-print">
           <span>{fiscalYear?.name || getActiveFiscalYearLabel()}</span>
           <span>Payment Year {paymentYear}</span>
+          <button
+            className="payroll-guide-toggle"
+            type="button"
+            aria-expanded={showPayrollGuide}
+            onClick={() => setShowPayrollGuide((current) => !current)}
+          >
+            ? Payroll Process
+          </button>
           {result ? <button className="refresh-button" type="button" onClick={() => printCurrentDocumentAsExcel(title)}>Print</button> : null}
           {result ? <button type="button" onClick={exportResult}>Save as Excel</button> : null}
         </div>
       </div>
+      {showPayrollGuide ? (
+        <aside className="payroll-process-guide no-print" aria-label="Payroll process explanation">
+          <div>
+            <p>Payroll Guide</p>
+            <h3>How salary processing works</h3>
+          </div>
+          <ol>
+            <li><strong>Set fiscal year:</strong> Open Management &gt; Payroll Setup &gt; Fiscal Year Settings and mark the active fiscal year.</li>
+            <li><strong>Create master codes:</strong> Add departments, designations, banks, bank branches, accounts, and wage codes before adding salary records.</li>
+            <li><strong>Add employee records:</strong> Save employee code, department, designation, BPS, bank code, branch code, account number, and active/inactive status.</li>
+            <li><strong>Attach allowances/deductions:</strong> Use Pay Allowances Entry for employee wage-code amounts. Use Tax Slab Settings for income tax rules.</li>
+            <li><strong>Select payroll period:</strong> Choose fiscal year, payment month, and department. Use dept code 999 to process all departments.</li>
+            <li><strong>Start preview:</strong> Click Start. The system calculates gross pay, deductions, tax, advances, and net pay for eligible employees.</li>
+            <li><strong>Post payroll:</strong> Review the preview. Click Post Payroll only when totals are correct. This saves the run and creates linked payroll records.</li>
+            <li><strong>Print/export reports:</strong> Use Bank Summary, Non Bank Salary, Grand Bank Summary, Payment List, Pay Slips, and audit reports after posting.</li>
+            <li><strong>Correct mistakes:</strong> Use Reprocess to reopen a posted run, or Void/Delete to cancel a wrong run. Linked journal/reversal details stay in history.</li>
+          </ol>
+          <p className="payroll-guide-note">
+            Practical order: setup masters first, enter employees second, enter allowances/deductions third, then process payroll for the month.
+          </p>
+        </aside>
+      ) : null}
       <div className="salary-period-form no-print">
         <label>
           <span>Fiscal Year</span>
