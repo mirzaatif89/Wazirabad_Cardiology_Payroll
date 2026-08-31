@@ -649,7 +649,7 @@ export async function calculateEmployeePayroll(
   const otherDeductions = allDetails
     .filter((line) => isDeductionWageCode(line.numericCode))
     .reduce((total, line) => total + Math.abs(line.amount), 0);
-  const totalDeductions = otherDeductions + taxAmount;
+  const totalDeductions = otherDeductions;
   const netPay = grossPay - totalDeductions;
   const isBankSalary = Boolean(String(employee.bankCode || "").trim() && String(employee.accountNo || "").trim());
 
