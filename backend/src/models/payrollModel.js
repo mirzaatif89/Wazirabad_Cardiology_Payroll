@@ -9,6 +9,10 @@ import { getWageCodeByCode } from "./wageCodeModel.js";
 
 const INCOME_TAX_WAGE_CODE = String(env.reportScheduleDefaults.incomeTax || "6002").trim();
 
+function roundCurrency(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
 function isTaxWageCode(wageCode) {
   return String(wageCode || "").trim().toUpperCase() === INCOME_TAX_WAGE_CODE.toUpperCase();
 }
