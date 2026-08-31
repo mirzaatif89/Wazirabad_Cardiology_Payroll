@@ -9828,16 +9828,60 @@ function PayslipView({ slips, filters }) {
 
 function SinglePaySlipPage() {
   const [employeeCode, setEmployeeCode] = useState("");
+  const [employeeOptions, setEmployeeOptions] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [filters, setFilters] = useState(payrollDefaultFilters());
   const [slip, setSlip] = useState(null);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
 
-  const run = async () => {
-    if (!employeeCode) { setStatus({ type: "error", message: "Employee No is required." }); return; }
+  useEffect(() => {
+    let mounted = true;
+    const loadEmployeeOptions = async () => {
+      setLoadingEmployees(true);
+      try {
+        const records = await getEmployees();
+        if (mounted) setEmployeeOptions(Array.isArray(records) ? records : []);
+      } catch (error) {
+        if (mounted) setStatus({ type: "error", message: error.message });
+      } finally {
+        if (mounted) setLoadingEmployees(false);
+      }
+    };
+    loadEmployeeOptions();
+    return () => { mounted = false; };
+  }, []);
+
+  const employeeSearchTerm = employeeCode.trim().toLowerCase();
+  const employeeMatches = employeeSearchTerm
+    ? employeeOptions.filter((employee) => [
+      employee.employeeNo,
+      employee.name,
+      employee.department,
+      employee.designation,
+      employee.placeOfPosting
+    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(employeeSearchTerm))).slice(0, 8)
+    : [];
+
+  const selectEmployee = (employee) => {
+    setEmployeeCode(employee.employeeNo || "");
+    setStatus({ type: "", message: "" });
+  };
+
+  const resolveEmployeeCode = (overrideCode = "") => {
+    const typedValue = String(overrideCode || employeeCode).trim();
+    if (!typedValue) return "";
+    const exactMatch = employeeOptions.find((employee) => String(employee.employeeNo || "").toLowerCase() === typedValue.toLowerCase());
+    return exactMatch?.employeeNo || employeeMatches[0]?.employeeNo || typedValue;
+  };
+
+  const run = async (overrideCode = "") => {
+    const resolvedEmployeeCode = resolveEmployeeCode(overrideCode);
+    if (!resolvedEmployeeCode) { setStatus({ type: "error", message: "Employee No or name is required." }); return; }
+    setEmployeeCode(resolvedEmployeeCode);
     setLoading(true);
     try {
-      const result = await getSinglePayrollPayslip(employeeCode, filters);
+      const result = await getSinglePayrollPayslip(resolvedEmployeeCode, filters);
       setSlip(result.data);
       if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel("single-pay-slip"), 150);
       if (filters.outputSelection === "excel") exportCurrentDocumentAfterRender("single-pay-slip");
@@ -9849,7 +9893,52 @@ function SinglePaySlipPage() {
     }
   };
 
-  return <section className="employee-entry-panel arrear-report-panel"><div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div><div className="report-filter-panel no-print"><label><span>Employee No</span><input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} /></label><label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label><label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label><fieldset><legend>Output Selection</legend><label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label><label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label><label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label></fieldset><div className="report-filter-actions"><button type="button" onClick={run} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div></div>{status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}{slip ? <PayslipView slips={[slip]} filters={filters} /> : null}</section>;
+  return <section className="employee-entry-panel arrear-report-panel">
+    <div className="form-title-row"><div><p>Payroll</p><h2>Single Pay Slips</h2></div></div>
+    <div className="report-filter-panel single-payslip-filter-panel no-print">
+      <label className="single-payslip-employee-search">
+        <span>Employee No / Name</span>
+        <input
+          value={employeeCode}
+          onChange={(e) => {
+            setEmployeeCode(e.target.value);
+            setStatus({ type: "", message: "" });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              run(employeeMatches[0]?.employeeNo || "");
+            }
+          }}
+          placeholder="Search employee code or name"
+          autoComplete="off"
+        />
+        {loadingEmployees ? <small>Loading employee list...</small> : null}
+        {employeeSearchTerm && employeeMatches.length ? (
+          <div className="single-payslip-employee-results">
+            {employeeMatches.map((employee) => (
+              <button type="button" key={employee.employeeNo} onClick={() => selectEmployee(employee)}>
+                <strong>{employee.employeeNo}</strong>
+                <span>{employee.name || "Unnamed employee"}</span>
+                <em>{employee.department || employee.designation || "-"}</em>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </label>
+      <label><span>Month Of Payment</span><input type="number" value={filters.month} onChange={(e) => setFilters((c) => ({ ...c, month: e.target.value }))} /></label>
+      <label><span>Payment Year</span><input type="number" value={filters.year} onChange={(e) => setFilters((c) => ({ ...c, year: e.target.value }))} /></label>
+      <fieldset>
+        <legend>Output Selection</legend>
+        <label><input type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> View</label>
+        <label><input type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Print</label>
+        <label><input type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={(e) => setFilters((c) => ({ ...c, outputSelection: e.target.value }))} /> Save as Excel</label>
+      </fieldset>
+      <div className="report-filter-actions"><button type="button" onClick={() => run()} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={() => { setEmployeeCode(""); setSlip(null); }}>Cancel</button></div>
+    </div>
+    {status.message ? <p className={`form-status ${status.type}`}>{status.message}</p> : null}
+    {slip ? <PayslipView slips={[slip]} filters={filters} /> : null}
+  </section>;
 }
 
 function SlipReprintHistoryPage() {

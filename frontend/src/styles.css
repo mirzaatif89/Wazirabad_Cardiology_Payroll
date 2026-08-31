@@ -3507,6 +3507,18 @@ h1 {
   background: #f8fcfb;
 }
 
+.single-payslip-filter-panel {
+  grid-template-columns: minmax(280px, 1.5fr) minmax(130px, 0.7fr) minmax(140px, 0.7fr) minmax(280px, 1fr) auto;
+}
+
+.single-payslip-filter-panel fieldset {
+  min-width: 280px;
+}
+
+.single-payslip-filter-panel .report-filter-actions {
+  align-self: end;
+}
+
 .report-filter-panel label {
   display: grid;
   gap: 7px;
@@ -3560,6 +3572,74 @@ h1 {
 .report-filter-panel fieldset input {
   min-height: auto;
   padding: 0;
+}
+
+.single-payslip-employee-search {
+  position: relative;
+}
+
+.single-payslip-employee-search small {
+  color: #607478;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.single-payslip-employee-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #c6d8d6;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(18, 52, 56, 0.18);
+}
+
+.single-payslip-employee-results button {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) minmax(100px, 0.7fr);
+  gap: 8px;
+  align-items: center;
+  min-height: auto;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  color: #20383d;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.single-payslip-employee-results button + button {
+  border-top: 1px solid #e2ecea;
+}
+
+.single-payslip-employee-results button:hover,
+.single-payslip-employee-results button:focus-visible {
+  color: #123438;
+  background: #edf8f5;
+  outline: 0;
+}
+
+.single-payslip-employee-results strong {
+  color: #0b746b;
+}
+
+.single-payslip-employee-results span,
+.single-payslip-employee-results em {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.single-payslip-employee-results em {
+  color: #607478;
+  font-style: normal;
 }
 
 .report-filter-actions {
@@ -4344,6 +4424,18 @@ h1 {
   }
 
   .allowance-employee-results em {
+    grid-column: 1 / -1;
+  }
+
+  .single-payslip-filter-panel fieldset {
+    min-width: 0;
+  }
+
+  .single-payslip-employee-results button {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .single-payslip-employee-results em {
     grid-column: 1 / -1;
   }
 
