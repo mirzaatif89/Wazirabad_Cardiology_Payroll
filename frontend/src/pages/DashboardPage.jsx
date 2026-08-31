@@ -4549,6 +4549,12 @@ function PayAllowancesEntry() {
               type="search"
               value={wageCodeSearch}
               onChange={(event) => setWageCodeSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && filteredAllowanceCodes.length) {
+                  event.preventDefault();
+                  applyAllowanceCode(activeAllowanceRowIndex, filteredAllowanceCodes[0]);
+                }
+              }}
               placeholder="Search code or description"
               autoFocus
             />
