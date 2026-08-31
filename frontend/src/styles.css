@@ -2258,6 +2258,10 @@ h1 {
   min-width: 0;
 }
 
+.allowance-employee-search {
+  position: relative;
+}
+
 .allowance-lookup span,
 .allowance-details span {
   color: #31474c;
@@ -2301,6 +2305,68 @@ h1 {
 .allowance-actions button:disabled {
   cursor: wait;
   opacity: 0.72;
+}
+
+.allowance-employee-search small {
+  color: #607478;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.allowance-employee-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #c6d8d6;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(18, 52, 56, 0.18);
+}
+
+.allowance-employee-results button {
+  min-height: auto;
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) minmax(110px, 0.7fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 0;
+  color: #20383d;
+  background: #ffffff;
+  text-align: left;
+}
+
+.allowance-employee-results button + button {
+  border-top: 1px solid #e2ecea;
+}
+
+.allowance-employee-results button:hover,
+.allowance-employee-results button:focus-visible {
+  color: #123438;
+  background: #edf8f5;
+  outline: 0;
+}
+
+.allowance-employee-results strong {
+  color: #0b746b;
+}
+
+.allowance-employee-results span,
+.allowance-employee-results em {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.allowance-employee-results em {
+  color: #607478;
+  font-style: normal;
 }
 
 .allowance-details {
@@ -4271,6 +4337,14 @@ h1 {
   .allowance-details,
   .allowance-inquiry-search {
     grid-template-columns: 1fr;
+  }
+
+  .allowance-employee-results button {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .allowance-employee-results em {
+    grid-column: 1 / -1;
   }
 
   .inquiry-summary-grid {

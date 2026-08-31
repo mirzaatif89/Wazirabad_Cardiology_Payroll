@@ -1220,21 +1220,21 @@ export async function getCurrentPayrollPeriod() {
   const [[run]] = await pool.query(
     `
       SELECT
-        id,
-        fiscal_year_id AS fiscalYearId,
-        payment_month AS paymentMonth,
-        payment_year AS paymentYear,
-        dept_code AS deptCode,
-        status,
-        processed_at AS processedAt,
-        processed_by AS processedBy,
+        pr.id,
+        pr.fiscal_year_id AS fiscalYearId,
+        pr.payment_month AS paymentMonth,
+        pr.payment_year AS paymentYear,
+        pr.dept_code AS deptCode,
+        pr.status,
+        pr.processed_at AS processedAt,
+        pr.processed_by AS processedBy,
         fy.name AS fiscalYearName,
         fy.start_date AS fiscalYearStartDate,
         fy.end_date AS fiscalYearEndDate
-      FROM payroll_runs
-      LEFT JOIN fiscal_years fy ON fy.id = payroll_runs.fiscal_year_id
-      WHERE status = 'draft'
-      ORDER BY payment_year DESC, payment_month DESC, id DESC
+      FROM payroll_runs pr
+      LEFT JOIN fiscal_years fy ON fy.id = pr.fiscal_year_id
+      WHERE pr.status = 'draft'
+      ORDER BY pr.payment_year DESC, pr.payment_month DESC, pr.id DESC
       LIMIT 1
     `
   );

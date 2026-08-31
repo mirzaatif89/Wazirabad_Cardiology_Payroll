@@ -4109,6 +4109,7 @@ const defaultAllowanceRows = Array.from({ length: 5 }, (_, index) => ({
 function PayAllowancesEntry() {
   const [employeeCode, setEmployeeCode] = useState("");
   const [employee, setEmployee] = useState(null);
+  const [employeeOptions, setEmployeeOptions] = useState([]);
   const [allowances, setAllowances] = useState(defaultAllowanceRows);
   const [allowanceCodes, setAllowanceCodes] = useState([]);
   const [activeAllowanceRowIndex, setActiveAllowanceRowIndex] = useState(0);
@@ -4117,9 +4118,27 @@ function PayAllowancesEntry() {
   const [showAllowanceSaved, setShowAllowanceSaved] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [saving, setSaving] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const isEmployeeStopped = Boolean(employee?.stopDate && employee.stopDate <= today);
+  const employeeSearchTerm = employeeCode.trim().toLowerCase();
+  const employeeMatches = employeeSearchTerm
+    ? employeeOptions
+        .filter((option) =>
+          [
+            option.employeeNo,
+            option.name,
+            option.department,
+            option.designation,
+            option.placeOfPosting
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(employeeSearchTerm))
+        )
+        .slice(0, 8)
+    : [];
+  const showEmployeeMatches = Boolean(employeeSearchTerm && employeeMatches.length);
   const formatAllowanceStopDate = (value) => {
     const [year, month, day] = String(value || "").slice(0, 10).split("-");
     return year && month && day ? `${day}/${month}/${year}` : String(value || "");
@@ -4177,9 +4196,15 @@ function PayAllowancesEntry() {
     }) || null;
   };
 
-  const loadEmployee = async () => {
-    if (!employeeCode.trim()) {
-      setStatus({ type: "error", message: "Please enter employee code." });
+  const loadEmployee = async (selectedEmployee = null) => {
+    const lookupValue = employeeCode.trim();
+    const matchedEmployee = selectedEmployee
+      || employeeOptions.find((option) => String(option.employeeNo || "").toLowerCase() === lookupValue.toLowerCase())
+      || employeeMatches[0]
+      || null;
+
+    if (!lookupValue && !matchedEmployee) {
+      setStatus({ type: "error", message: "Please enter employee code or name." });
       return;
     }
 
@@ -4187,9 +4212,10 @@ function PayAllowancesEntry() {
     setStatus({ type: "", message: "" });
 
     try {
-      const foundEmployee = await getEmployeeByCode(employeeCode.trim());
+      const foundEmployee = matchedEmployee || await getEmployeeByCode(lookupValue);
       const allowanceData = await getEmployeeAllowances(foundEmployee.id);
       setEmployee(foundEmployee);
+      setEmployeeCode(foundEmployee.employeeNo || lookupValue);
       setAllowances(
         allowanceData.allowances.length
           ? allowanceData.allowances.map((allowance) => ({ ...allowance, upto: allowance.upto || "2099-12-31" }))
@@ -4208,7 +4234,19 @@ function PayAllowancesEntry() {
   const handleEmployeeCodeKeyDown = (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      loadEmployee();
+      loadEmployee(employeeMatches[0] || null);
+    }
+  };
+
+  const loadEmployeeOptions = async () => {
+    setLoadingEmployees(true);
+
+    try {
+      setEmployeeOptions(await getEmployees());
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoadingEmployees(false);
     }
   };
 
@@ -4311,6 +4349,7 @@ function PayAllowancesEntry() {
   };
 
   useEffect(() => {
+    loadEmployeeOptions();
     loadAllowanceCodes();
   }, []);
 
@@ -4336,17 +4375,34 @@ function PayAllowancesEntry() {
       <div className="allowance-title">Allowance Entry</div>
 
       <div className="allowance-lookup">
-        <label>
-          <span>Employee Code</span>
+        <label className="allowance-employee-search">
+          <span>Employee Code / Name</span>
           <input
             type="text"
             value={employeeCode}
             onChange={(event) => setEmployeeCode(event.target.value)}
             onKeyDown={handleEmployeeCodeKeyDown}
-            placeholder="Enter employee code and press Enter"
+            placeholder="Search by employee code or name"
+            autoComplete="off"
           />
+          {loadingEmployees ? <small>Loading employee list...</small> : null}
+          {showEmployeeMatches ? (
+            <div className="allowance-employee-results">
+              {employeeMatches.map((matchedEmployee) => (
+                <button
+                  type="button"
+                  key={matchedEmployee.id}
+                  onClick={() => loadEmployee(matchedEmployee)}
+                >
+                  <strong>{matchedEmployee.employeeNo}</strong>
+                  <span>{matchedEmployee.name || "-"}</span>
+                  <em>{matchedEmployee.department || matchedEmployee.designation || "-"}</em>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </label>
-        <button type="button" onClick={loadEmployee} disabled={loading}>
+        <button type="button" onClick={() => loadEmployee()} disabled={loading}>
           {loading ? "Loading..." : "Load"}
         </button>
       </div>
