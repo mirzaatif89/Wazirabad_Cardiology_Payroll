@@ -3508,15 +3508,30 @@ h1 {
 }
 
 .single-payslip-filter-panel {
-  grid-template-columns: minmax(280px, 1.5fr) minmax(130px, 0.7fr) minmax(140px, 0.7fr) minmax(280px, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
 }
 
-.single-payslip-filter-panel fieldset {
+.single-payslip-filter-panel > label {
+  flex: 0 1 170px;
+  min-width: 150px;
+}
+
+.single-payslip-filter-panel > .single-payslip-employee-search {
+  flex: 1 1 360px;
   min-width: 280px;
 }
 
-.single-payslip-filter-panel .report-filter-actions {
-  align-self: end;
+.single-payslip-filter-panel fieldset {
+  flex: 1 1 320px;
+  min-width: 280px;
+  box-sizing: border-box;
+}
+
+.single-payslip-filter-panel > .report-filter-actions {
+  flex: 0 0 auto;
+  align-self: flex-end;
 }
 
 .report-filter-panel label {
