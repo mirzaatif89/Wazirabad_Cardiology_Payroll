@@ -6,6 +6,7 @@ import {
   getGrandBankSummary,
   getListOfPayment,
   getPayrollRunById,
+  getPayrollMonthDifference,
   getNonBankSalary,
   getPaymentList,
   getPayrollRuns,
@@ -155,6 +156,35 @@ async function sendPeriodReport(req, res, loader, message) {
 export const bankSummary = (req, res) => sendPeriodReport(req, res, getBankSummary, "Bank summary loaded.");
 export const nonBankSalary = (req, res) => sendPeriodReport(req, res, getNonBankSalary, "Non bank salary loaded.");
 export const grandBankSummary = (req, res) => sendPeriodReport(req, res, getGrandBankSummary, "Grand bank summary loaded.");
+export async function payrollMonthDifference(req, res) {
+  const previousMonth = Number(req.query.previous_month || 0);
+  const previousYear = Number(req.query.previous_year || 0);
+  const currentMonth = Number(req.query.current_month || 0);
+  const currentYear = Number(req.query.current_year || 0);
+
+  if (!previousMonth || previousMonth > 12 || !previousYear || !currentMonth || currentMonth > 12 || !currentYear) {
+    return res.status(400).json({ success: false, data: null, message: "Both payroll periods are required." });
+  }
+  if (previousMonth === currentMonth && previousYear === currentYear) {
+    return res.status(400).json({ success: false, data: null, message: "Select two different payroll periods." });
+  }
+
+  const shared = {
+    deptCode: req.query.dept_code || "999",
+    gazNg: req.query.gaz_ng || "A",
+    reportFor: req.query.report_for || "All"
+  };
+  try {
+    const data = await getPayrollMonthDifference({
+      previous: { ...shared, month: previousMonth, year: previousYear },
+      current: { ...shared, month: currentMonth, year: currentYear }
+    });
+    return res.json({ success: true, data, message: "Payroll month difference loaded." });
+  } catch (error) {
+    console.error("Payroll month difference failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Payroll month difference failed." });
+  }
+}
 export const paymentList = (req, res) => sendPeriodReport(req, res, getPaymentList, "Payment list loaded.");
 export const listOfPayment = (req, res) => sendPeriodReport(req, res, getListOfPayment, "List of payment loaded.");
 export const scaleAuditRegister = (req, res) => sendPeriodReport(req, res, getPayrollScaleAudit, "Scale audit register loaded.");

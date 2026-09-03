@@ -11,6 +11,10 @@ function validateAccountCode(accountCode) {
     return "Account code and designation name are required.";
   }
 
+  if (accountCode.code.length > 20) {
+    return "Account code cannot exceed 20 characters because it is used in the accounting ledger.";
+  }
+
   return "";
 }
 
@@ -83,6 +87,10 @@ export async function deleteAccountCode(req, res) {
 
     return res.json({ message: "Account code deleted successfully." });
   } catch (error) {
+    if (error.code === "ACCOUNT_CODE_IN_USE" || error.code === "ER_ROW_IS_REFERENCED_2") {
+      return res.status(409).json({ message: "Account code is already used by payroll or accounting entries and cannot be deleted." });
+    }
+
     console.error("Account code delete failed:", error);
     return res.status(500).json({ message: "Account code delete failed." });
   }

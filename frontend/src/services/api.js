@@ -1420,6 +1420,16 @@ export async function reopenPayrollRun(id) {
   return readJsonResponse(response, "Payroll reopen failed.");
 }
 
+export async function getPayrollMonthDifference(filters = {}) {
+  const params = payrollParams(filters);
+  params.set("previous_month", filters.previousMonth || "");
+  params.set("previous_year", filters.previousYear || "");
+  params.set("current_month", filters.currentMonth || "");
+  params.set("current_year", filters.currentYear || "");
+  const response = await fetch(`${API_BASE_URL}/payroll/month-difference?${params.toString()}`);
+  return readJsonResponse(response, "Payroll month comparison failed.");
+}
+
 export async function voidPayrollRun(id, payload = {}) {
   const response = await fetch(`${API_BASE_URL}/payroll/runs/${id}/void`, {
     method: "POST",

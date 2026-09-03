@@ -10,6 +10,7 @@ import {
   listPayrollRuns,
   nonBankSalary,
   paymentList,
+  payrollMonthDifference,
   payslips,
   previewPayrollRun,
   processPayrollRun,
@@ -32,6 +33,7 @@ router.post("/runs/:id/void", voidRun);
 router.get("/bank-summary", bankSummary);
 router.get("/non-bank-salary", nonBankSalary);
 router.get("/grand-bank-summary", grandBankSummary);
+router.get("/month-difference", payrollMonthDifference);
 router.get("/payment-list", paymentList);
 router.get("/list-of-payment", listOfPayment);
 router.get("/scale-audit-register", scaleAuditRegister);

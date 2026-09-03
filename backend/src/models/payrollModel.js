@@ -1468,6 +1468,14 @@ async function getRunRows(filters = {}, extraWhere = "") {
         e.designation,
         e.bps,
         e.gaz_ng AS gazNg,
+        e.cnic_no AS cnicNo,
+        DATE_FORMAT(e.date_of_joining, '%Y-%m-%d') AS dateOfJoining,
+        e.service_type AS serviceType,
+        e.place_of_posting AS placeOfPosting,
+        e.gpf_account_no AS gpfAccountNo,
+        e.ntn_no AS ntnNo,
+        e.pghsf_no AS pghsfNo,
+        e.sap_no AS sapNo,
         pri.gross_pay AS grossPay,
         pri.total_deductions AS totalDeductions,
         pri.net_pay AS netPay,
@@ -1530,6 +1538,93 @@ export async function getGrandBankSummary(filters) {
     return result;
   }, {}));
   return { banks, grandTotal: banks.reduce((total, bank) => total + bank.totalAmount, 0) };
+}
+
+export async function getPayrollMonthDifference({ previous, current }) {
+  const [previousRun, currentRun] = await Promise.all([
+    getRun(previous),
+    getRun(current)
+  ]);
+  const zeroTotals = {
+    previousGross: 0,
+    currentGross: 0,
+    grossDifference: 0,
+    previousDeductions: 0,
+    currentDeductions: 0,
+    deductionDifference: 0,
+    previousNet: 0,
+    currentNet: 0,
+    netDifference: 0
+  };
+
+  if (!previousRun || !currentRun) {
+    return {
+      previousPeriod: { month: Number(previous.month), year: Number(previous.year), available: Boolean(previousRun) },
+      currentPeriod: { month: Number(current.month), year: Number(current.year), available: Boolean(currentRun) },
+      employeeCounts: { previous: 0, current: 0, compared: 0 },
+      rows: [],
+      totals: zeroTotals
+    };
+  }
+
+  const [previousRows, currentRows] = await Promise.all([
+    getRunRows(previous),
+    getRunRows(current)
+  ]);
+  const previousByEmployee = new Map(previousRows.map((row) => [String(row.employeeCode), row]));
+  const currentByEmployee = new Map(currentRows.map((row) => [String(row.employeeCode), row]));
+  const employeeCodes = [...new Set([...previousByEmployee.keys(), ...currentByEmployee.keys()])]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  const amount = (value) => Number(value || 0);
+
+  const rows = employeeCodes.map((employeeCode) => {
+    const previousRow = previousByEmployee.get(employeeCode);
+    const currentRow = currentByEmployee.get(employeeCode);
+    const previousGross = amount(previousRow?.grossPay);
+    const currentGross = amount(currentRow?.grossPay);
+    const previousDeductions = amount(previousRow?.totalDeductions);
+    const currentDeductions = amount(currentRow?.totalDeductions);
+    const previousNet = amount(previousRow?.netPay);
+    const currentNet = amount(currentRow?.netPay);
+    const netDifference = currentNet - previousNet;
+
+    return {
+      employeeCode,
+      name: currentRow?.name || previousRow?.name || "",
+      department: currentRow?.department || previousRow?.department || "",
+      designation: currentRow?.designation || previousRow?.designation || "",
+      previousGross,
+      currentGross,
+      grossDifference: currentGross - previousGross,
+      previousDeductions,
+      currentDeductions,
+      deductionDifference: currentDeductions - previousDeductions,
+      previousNet,
+      currentNet,
+      netDifference,
+      changeType: !previousRow ? "Added" : !currentRow ? "Removed" : netDifference === 0 ? "Unchanged" : "Changed"
+    };
+  });
+
+  const totals = rows.reduce((result, row) => ({
+    previousGross: result.previousGross + row.previousGross,
+    currentGross: result.currentGross + row.currentGross,
+    grossDifference: result.grossDifference + row.grossDifference,
+    previousDeductions: result.previousDeductions + row.previousDeductions,
+    currentDeductions: result.currentDeductions + row.currentDeductions,
+    deductionDifference: result.deductionDifference + row.deductionDifference,
+    previousNet: result.previousNet + row.previousNet,
+    currentNet: result.currentNet + row.currentNet,
+    netDifference: result.netDifference + row.netDifference
+  }), zeroTotals);
+
+  return {
+    previousPeriod: { month: Number(previous.month), year: Number(previous.year), available: Boolean(previousRun) },
+    currentPeriod: { month: Number(current.month), year: Number(current.year), available: Boolean(currentRun) },
+    employeeCounts: { previous: previousRows.length, current: currentRows.length, compared: rows.length },
+    rows,
+    totals
+  };
 }
 
 export async function getPaymentList(filters) {
@@ -1648,11 +1743,27 @@ export async function getSinglePayslip({ employeeCode, month, year }) {
         e.designation,
         e.bps,
         e.gaz_ng AS gazNg,
+        e.cnic_no AS cnicNo,
+        DATE_FORMAT(e.date_of_joining, '%Y-%m-%d') AS dateOfJoining,
+        e.service_type AS serviceType,
+        e.place_of_posting AS placeOfPosting,
+        e.gpf_account_no AS gpfAccountNo,
+        e.ntn_no AS ntnNo,
+        e.pghsf_no AS pghsfNo,
+        e.sap_no AS sapNo,
         pri.gross_pay AS grossPay,
         pri.total_deductions AS totalDeductions,
-        pri.net_pay AS netPay
+        pri.net_pay AS netPay,
+        pri.bank_code AS bankCode,
+        bc.bank AS bankName,
+        pri.bank_branch_code AS bankBranchCode,
+        bbc.branch AS branchName,
+        pri.account_no AS accountNo,
+        pri.is_bank_salary AS isBankSalary
       FROM payroll_run_items pri
       INNER JOIN employees e ON e.employee_no = pri.employee_code
+      LEFT JOIN bank_codes bc ON bc.code = pri.bank_code
+      LEFT JOIN bank_branch_codes bbc ON bbc.code = pri.bank_branch_code
       WHERE pri.employee_code = ?
         AND pri.payroll_run_id IN (${runIds.map(() => "?").join(",")})
       LIMIT 1

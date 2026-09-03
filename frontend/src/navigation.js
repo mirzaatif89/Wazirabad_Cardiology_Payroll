@@ -48,7 +48,8 @@ export const sidebarSections = [
         label: "Payment Reports",
         items: [
           "Payment List",
-          "List Of Payment"
+          "List Of Payment",
+          "Month Difference"
         ]
       },
       {

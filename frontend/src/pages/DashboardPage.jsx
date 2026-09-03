@@ -75,6 +75,7 @@ import {
   getProofReport,
   getPayrollBudgetRequirement,
   getPayrollCurrentPeriod,
+  getPayrollMonthDifference,
   getPayrollReport,
   getPayrollRun,
   getPayrollRuns,
@@ -2523,6 +2524,11 @@ function WageCodeMaster() {
       nextErrors.description = "Description is required.";
     }
 
+    const cleanAccountCode = form.attachedAccountCode.trim();
+    if (cleanAccountCode && !accounts.some((account) => String(account.code).toLowerCase() === cleanAccountCode.toLowerCase())) {
+      nextErrors.attachedAccountCode = "Select an account code from the accounting ledger list.";
+    }
+
     setErrors(nextErrors);
     return !Object.keys(nextErrors).length;
   };
@@ -2579,9 +2585,12 @@ function WageCodeMaster() {
     setSaving(true);
 
     try {
+      const selectedAccount = accounts.find(
+        (account) => String(account.code).toLowerCase() === form.attachedAccountCode.trim().toLowerCase()
+      );
       const payload = {
         description: form.description.trim(),
-        attachedAccountCode: form.attachedAccountCode || null
+        attachedAccountCode: selectedAccount?.code || null
       };
       const result = isEditMode
         ? await updateWageCode(editingCode, payload)
@@ -2721,6 +2730,7 @@ function WageCodeMaster() {
               </option>
             ))}
           </datalist>
+          {errors.attachedAccountCode ? <small>{errors.attachedAccountCode}</small> : null}
         </label>
 
         <div className="wage-category-preview">
@@ -8464,15 +8474,38 @@ function PayrollReportShell({ title, endpoint, children, allowExcel = false, sim
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
 
-  const run = async () => {
+  const run = async (overrideFilters = null) => {
+    const activeFilters = overrideFilters || filters;
     setLoading(true);
     setStatus({ type: "", message: "" });
     try {
-      const result = await getPayrollReport(endpoint, filters);
+      const [result, runResponse] = await Promise.all([
+        getPayrollReport(endpoint, activeFilters),
+        getPayrollRuns(activeFilters)
+      ]);
+      const periodRun = (runResponse.data || [])[0] || null;
+      const reportData = result.data;
+      const bankReportIsEmpty = ["bank-summary", "grand-bank-summary"].includes(endpoint)
+        && !(reportData?.banks || []).length;
+      const nonBankReportIsEmpty = endpoint === "non-bank-salary" && !(reportData?.rows || []).length;
+
       setReport(result.data);
-      if (filters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
-      if (filters.outputSelection === "excel" && exportRows) exportRowsToExcel(exportRows(result.data), `${endpoint}-${filters.month}-${filters.year}.xlsx`);
-      if (filters.outputSelection === "excel" && !exportRows) exportCurrentDocumentAfterRender(title);
+
+      if (!periodRun) {
+        setStatus({ type: "neutral", message: `No payroll run exists for ${activeFilters.month}/${activeFilters.year} and department ${activeFilters.deptCode || "999"}.` });
+      } else if (!["processed", "locked"].includes(String(periodRun.status).toLowerCase())) {
+        setStatus({ type: "neutral", message: `Payroll for ${activeFilters.month}/${activeFilters.year} is ${periodRun.status}. Resume it and click Post Payroll before opening financial reports.` });
+      } else if (bankReportIsEmpty) {
+        setStatus({ type: "neutral", message: "The payroll is posted, but no employee was marked for bank salary. Add Bank Code, Branch Code, and Account No to employees, then reprocess the payroll." });
+      } else if (nonBankReportIsEmpty) {
+        setStatus({ type: "success", message: "The payroll is posted and all included employees are configured for bank salary." });
+      } else {
+        setStatus({ type: "success", message: `Report loaded from posted payroll ${activeFilters.month}/${activeFilters.year}.` });
+      }
+
+      if (activeFilters.outputSelection === "printer") window.setTimeout(() => printCurrentDocumentAsExcel(title), 150);
+      if (activeFilters.outputSelection === "excel" && exportRows) exportRowsToExcel(exportRows(result.data), `${endpoint}-${activeFilters.month}-${activeFilters.year}.xlsx`);
+      if (activeFilters.outputSelection === "excel" && !exportRows) exportCurrentDocumentAfterRender(title);
     } catch (error) {
       setReport(null);
       setStatus({ type: "error", message: error.message });
@@ -8480,6 +8513,44 @@ function PayrollReportShell({ title, endpoint, children, allowExcel = false, sim
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLatestPostedPayroll() {
+      try {
+        const response = await getPayrollRuns();
+        const latestRun = (response.data || []).find((runItem) =>
+          ["processed", "locked"].includes(String(runItem.status).toLowerCase())
+        );
+
+        if (!latestRun || cancelled) {
+          if (!cancelled) {
+            setStatus({ type: "neutral", message: "No posted payroll run is available yet. Post a payroll before opening financial reports." });
+          }
+          return;
+        }
+
+        const latestFilters = {
+          ...payrollDefaultFilters(extraDefaults),
+          month: String(latestRun.paymentMonth),
+          year: String(latestRun.paymentYear),
+          deptCode: String(latestRun.deptCode || "999")
+        };
+        setFilters(latestFilters);
+        await run(latestFilters);
+      } catch (error) {
+        if (!cancelled) {
+          setStatus({ type: "error", message: error.message });
+        }
+      }
+    }
+
+    loadLatestPostedPayroll();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const cancel = () => {
     setFilters(payrollDefaultFilters(extraDefaults));
@@ -9198,18 +9269,46 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
 
   const updateFilter = (event) => {
     const { name, value } = event.target;
+    let nextFiscalYearId = selectedFiscalYearId;
+    let nextFilters = { ...filters };
+
     if (name === "fiscalYearId") {
+      nextFiscalYearId = value;
+      const nextFiscalYear = fiscalYears.find((record) => String(record.id) === String(value)) || null;
+      nextFilters.year = derivePayrollPaymentYear(nextFilters.month, nextFiscalYear);
       setSelectedFiscalYearId(value);
-      return;
+    } else {
+      nextFilters[name] = value;
+      if (name === "month") {
+        nextFilters.year = derivePayrollPaymentYear(value, fiscalYear);
+      }
     }
 
-    setFilters((current) => {
-      const next = { ...current, [name]: value };
-      if (name === "month") {
-        next.year = derivePayrollPaymentYear(value, fiscalYear);
+    const periodChanged =
+      String(nextFilters.month) !== String(filters.month) ||
+      String(nextFilters.year) !== String(filters.year) ||
+      String(nextFilters.deptCode) !== String(filters.deptCode) ||
+      String(nextFiscalYearId) !== String(selectedFiscalYearId);
+
+    setFilters(nextFilters);
+
+    if (periodChanged) {
+      const draftMatchesSelection = draftRun &&
+        String(draftRun.paymentMonth) === String(nextFilters.month) &&
+        String(draftRun.paymentYear) === String(nextFilters.year) &&
+        String(draftRun.deptCode || "999") === String(nextFilters.deptCode || "999") &&
+        (!draftRun.fiscalYearId || String(draftRun.fiscalYearId) === String(nextFiscalYearId));
+
+      if (!draftMatchesSelection) {
+        setDraftRun(null);
       }
-      return next;
-    });
+
+      setResult(null);
+      setConfirmDialog(null);
+      setRuns([]);
+      setStatus({ type: "neutral", message: `Ready to start payroll for ${nextFilters.month}/${nextFilters.year}.` });
+      loadRuns(nextFilters).catch(() => setRuns([]));
+    }
   };
 
   const getCorrectionImpactText = (run, action) => {
@@ -9683,6 +9782,135 @@ function GrandBankSummaryPage() {
   return <PayrollReportShell title="Grand Bank Summary" endpoint="grand-bank-summary" allowExcel exportRows={(r) => r.banks || []}>{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="Grand Bank Summary" filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr><th>Bank Name</th><th>Total Employees</th><th>Total Amount</th></tr></thead><tbody>{(report.banks || []).map((b) => <tr key={b.bankName}><td>{b.bankName}</td><td>{b.employeeCount}</td><td className="amount-cell">{formatCurrency(b.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div>}</PayrollReportShell>;
 }
 
+function MonthDifferencePage() {
+  const today = new Date();
+  const previousDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const [filters, setFilters] = useState({
+    previousMonth: String(previousDate.getMonth() + 1),
+    previousYear: String(previousDate.getFullYear()),
+    currentMonth: String(today.getMonth() + 1),
+    currentYear: String(today.getFullYear()),
+    deptCode: "999",
+    gazNg: "A",
+    reportFor: "All",
+    outputSelection: "screen"
+  });
+  const [report, setReport] = useState(null);
+  const [status, setStatus] = useState({ type: "", message: "" });
+  const [loading, setLoading] = useState(false);
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  const run = async (overrideFilters = null) => {
+    const activeFilters = overrideFilters || filters;
+    setLoading(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const response = await getPayrollMonthDifference(activeFilters);
+      const data = response.data;
+      const missingPeriods = [];
+      if (!data.previousPeriod?.available) missingPeriods.push(`${activeFilters.previousMonth}/${activeFilters.previousYear}`);
+      if (!data.currentPeriod?.available) missingPeriods.push(`${activeFilters.currentMonth}/${activeFilters.currentYear}`);
+      setReport(missingPeriods.length ? null : data);
+      if (missingPeriods.length) {
+        setStatus({ type: "neutral", message: `No posted payroll was found for ${missingPeriods.join(" and ")}. Process and post those periods before comparing them.` });
+      } else {
+        setStatus({ type: "success", message: `${data.employeeCounts?.compared || 0} employee record(s) compared successfully.` });
+      }
+
+      if (activeFilters.outputSelection === "printer") window.setTimeout(() => window.print(), 150);
+      if (activeFilters.outputSelection === "excel") {
+        exportRowsToExcel((data.rows || []).map((row) => ({
+          Employee: row.employeeCode,
+          Name: row.name,
+          Department: row.department,
+          Designation: row.designation,
+          [`Net ${activeFilters.previousMonth}/${activeFilters.previousYear}`]: row.previousNet,
+          [`Net ${activeFilters.currentMonth}/${activeFilters.currentYear}`]: row.currentNet,
+          Difference: row.netDifference,
+          Status: row.changeType
+        })), `payroll-difference-${activeFilters.previousMonth}-${activeFilters.previousYear}-to-${activeFilters.currentMonth}-${activeFilters.currentYear}.xlsx`);
+      }
+    } catch (error) {
+      setReport(null);
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLatestPeriods() {
+      try {
+        const response = await getPayrollRuns();
+        const postedRuns = (response.data || []).filter((item) => ["processed", "locked"].includes(String(item.status).toLowerCase()));
+        const latest = postedRuns[0];
+        const previous = postedRuns.find((item) => latest
+          && String(item.deptCode || "999") === String(latest.deptCode || "999")
+          && (Number(item.paymentMonth) !== Number(latest.paymentMonth) || Number(item.paymentYear) !== Number(latest.paymentYear)));
+
+        if (cancelled) return;
+        if (!latest || !previous) {
+          setStatus({ type: "neutral", message: "At least two posted payroll months are required for comparison." });
+          return;
+        }
+
+        const latestFilters = {
+          ...filters,
+          previousMonth: String(previous.paymentMonth),
+          previousYear: String(previous.paymentYear),
+          currentMonth: String(latest.paymentMonth),
+          currentYear: String(latest.paymentYear),
+          deptCode: String(latest.deptCode || "999")
+        };
+        setFilters(latestFilters);
+        await run(latestFilters);
+      } catch (error) {
+        if (!cancelled) setStatus({ type: "error", message: error.message });
+      }
+    }
+    loadLatestPeriods();
+    return () => { cancelled = true; };
+  }, []);
+
+  const update = (event) => setFilters((current) => ({ ...current, [event.target.name]: event.target.value }));
+  const differenceClass = (value) => Number(value) > 0 ? "difference-positive" : Number(value) < 0 ? "difference-negative" : "";
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel">
+      <div className="form-title-row"><div><p>Payroll Reports</p><h2>Month Difference</h2><span>Compare the net salary saved in two posted payroll months.</span></div></div>
+      <div className="report-filter-panel month-difference-filter no-print">
+        <label><span>Previous Month</span><select name="previousMonth" value={filters.previousMonth} onChange={update}>{monthNames.map((name, index) => <option value={index + 1} key={name}>{name}</option>)}</select></label>
+        <label><span>Previous Year</span><input name="previousYear" type="number" min="2000" value={filters.previousYear} onChange={update} /></label>
+        <label><span>Current Month</span><select name="currentMonth" value={filters.currentMonth} onChange={update}>{monthNames.map((name, index) => <option value={index + 1} key={name}>{name}</option>)}</select></label>
+        <label><span>Current Year</span><input name="currentYear" type="number" min="2000" value={filters.currentYear} onChange={update} /></label>
+        <label><span>Department Code</span><input name="deptCode" value={filters.deptCode} onChange={update} /></label>
+        <fieldset><legend>Output</legend><label><input name="outputSelection" type="radio" value="screen" checked={filters.outputSelection === "screen"} onChange={update} /> View</label><label><input name="outputSelection" type="radio" value="printer" checked={filters.outputSelection === "printer"} onChange={update} /> Print</label><label><input name="outputSelection" type="radio" value="excel" checked={filters.outputSelection === "excel"} onChange={update} /> Excel</label></fieldset>
+        <div className="report-filter-actions"><button type="button" onClick={() => run()} disabled={loading}>{loading ? "Comparing..." : "Compare"}</button><button type="button" onClick={() => { setReport(null); setStatus({ type: "", message: "" }); }}>Clear</button></div>
+      </div>
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+      {report ? (
+        <div className="arrear-report-print-area">
+          <ReportLetterhead title="Payroll Month Difference" filterSummary={`${filters.previousMonth}/${filters.previousYear} compared with ${filters.currentMonth}/${filters.currentYear} | Dept ${filters.deptCode}`} />
+          <div className="month-difference-summary">
+            <article><span>Previous Total</span><strong>PKR {formatCurrency(report.totals?.previousNet)}</strong></article>
+            <article><span>Current Total</span><strong>PKR {formatCurrency(report.totals?.currentNet)}</strong></article>
+            <article className={differenceClass(report.totals?.netDifference)}><span>Total Difference</span><strong>PKR {formatCurrency(report.totals?.netDifference)}</strong></article>
+          </div>
+          <table className="print-report-table month-difference-table">
+            <thead><tr><th>Employee</th><th>Name</th><th>Department</th><th>Previous Net</th><th>Current Net</th><th>Difference</th><th>Status</th></tr></thead>
+            <tbody>
+              {(report.rows || []).map((row) => <tr key={row.employeeCode}><td>{row.employeeCode}</td><td>{row.name}</td><td>{row.department}</td><td className="amount-cell">{formatCurrency(row.previousNet)}</td><td className="amount-cell">{formatCurrency(row.currentNet)}</td><td className={`amount-cell ${differenceClass(row.netDifference)}`}>{formatCurrency(row.netDifference)}</td><td>{row.changeType}</td></tr>)}
+              {!report.rows?.length ? <tr><td colSpan="7">No posted payroll records found for the selected periods.</td></tr> : null}
+              <tr className="report-total-row"><td colSpan="3">Grand Total</td><td className="amount-cell">{formatCurrency(report.totals?.previousNet)}</td><td className="amount-cell">{formatCurrency(report.totals?.currentNet)}</td><td className={`amount-cell ${differenceClass(report.totals?.netDifference)}`}>{formatCurrency(report.totals?.netDifference)}</td><td /></tr>
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function FlatPayrollTable({ title, rows, filters, total, columns }) {
   return <div className="arrear-report-print-area"><ReportLetterhead title={title} filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.employeeCode}>{columns.map((c) => <td key={c} className={String(c).toLowerCase().includes("pay") || c === "netPay" || c === "grossPay" || c === "totalDeductions" ? "amount-cell" : ""}>{typeof row[c] === "number" || ["grossPay", "totalDeductions", "netPay"].includes(c) ? formatCurrency(row[c]) : row[c]}</td>)}</tr>)}<tr className="report-total-row"><td colSpan={Math.max(columns.length - 1, 1)}>Grand Total</td><td className="amount-cell">{formatCurrency(total)}</td></tr></tbody></table></div>;
 }
@@ -9744,86 +9972,80 @@ function formatSlipPeriodLabel(slip, filters = {}) {
   return "Payroll Period";
 }
 
+function formatServiceLength(dateOfJoining, month, year) {
+  if (!dateOfJoining) return "-";
+  const joined = new Date(`${dateOfJoining}T00:00:00`);
+  const periodEnd = month && year
+    ? new Date(Number(year), Number(month), 0)
+    : new Date();
+  if (Number.isNaN(joined.getTime()) || joined > periodEnd) return "-";
+
+  let years = periodEnd.getFullYear() - joined.getFullYear();
+  let months = periodEnd.getMonth() - joined.getMonth();
+  if (periodEnd.getDate() < joined.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  return `${years} Yr${years === 1 ? "" : "s"} ${months} Month${months === 1 ? "" : "s"}`;
+}
+
 function PayslipView({ slips, filters }) {
   return (
     <div className="arrear-report-print-area payslip-report-area">
       {slips.map((slip, index) => {
         const periodLabel = formatSlipPeriodLabel(slip, filters);
-        const employeeSummary = [slip.employeeCode, slip.name].filter(Boolean).join(" - ");
-        const summaryCards = [
-          { label: "Gross Pay", value: slip.grossPay },
-          { label: "Total Deductions", value: slip.totalDeductions },
-          { label: "Net Pay", value: slip.netPay }
-        ];
+        const paymentLines = (slip.details || []).filter((detail) => Number(detail.numericCode || detail.wageCode || 0) < 4000);
+        const deductionLines = (slip.details || []).filter((detail) => Number(detail.numericCode || detail.wageCode || 0) >= 4000);
+        const lineCount = Math.max(paymentLines.length, deductionLines.length, 1);
+        const month = slip.paymentMonth || filters.month;
+        const year = slip.paymentYear || filters.year;
+        const bankLabel = [slip.bankCode, slip.bankName, slip.branchName].filter(Boolean).join(" - ");
 
         return (
-          <section className="print-bill-section payslip-section" key={`${slip.employeeCode || "employee"}-${slip.period || periodLabel}-${index}`}>
-            <ReportLetterhead title="Salary Slip" filterSummary={`${periodLabel}${employeeSummary ? ` | ${employeeSummary}` : ""}`} />
-            <div className="payslip-topline">
-              <div>
-                <span>Employee No.</span>
-                <strong>{slip.employeeCode || "-"}</strong>
-              </div>
-              <div>
-                <span>Name</span>
-                <strong>{slip.name || "-"}</strong>
-              </div>
-              <div>
-                <span>Department</span>
-                <strong>{slip.department || "-"}</strong>
-              </div>
-              <div>
-                <span>Designation</span>
-                <strong>{slip.designation || "-"}</strong>
-              </div>
-              <div>
-                <span>BPS</span>
-                <strong>{slip.bps || "-"}</strong>
-              </div>
-              <div>
-                <span>Period</span>
-                <strong>{periodLabel}</strong>
-              </div>
+          <section className="payslip-section payslip-sheet" key={`${slip.employeeCode || "employee"}-${slip.period || periodLabel}-${index}`}>
+            <header className="payslip-form-header">
+              <h2>Wazirabad Institute Of Cardiology</h2>
+              <div><span>Page # {index + 1}</span><strong>Slip For The Month of {periodLabel}</strong></div>
+            </header>
+
+            <div className="payslip-identity-grid">
+              <div className="payslip-field payslip-field-wide"><span>P #{slip.employeeCode || "-"}</span><strong>Name:- {slip.name || "-"}</strong></div>
+              <div className="payslip-field"><strong>Desig:- {slip.designation || "-"}</strong></div>
+              <div className="payslip-field"><strong>CNIC {slip.cnicNo || "-"}</strong></div>
+              <div className="payslip-field"><strong>Dept:- {slip.department || "-"}</strong></div>
+              <div className="payslip-field"><strong>BPS {slip.bps || "-"} - {slip.serviceType || "Regular"} {slip.placeOfPosting || "Hospital"}</strong></div>
+              <div className="payslip-field payslip-field-wide"><strong>G. P. Fund</strong><span>{slip.gpfAccountNo || "-"}</span></div>
+              <div className="payslip-field"><strong>PGHSF</strong><span>{slip.pghsfNo || "-"}</span></div>
+              <div className="payslip-field"><strong>Length Of Service</strong><span>{formatServiceLength(slip.dateOfJoining, month, year)}</span></div>
+              <div className="payslip-field"><strong>NTN:-</strong><span>{slip.ntnNo || "-"}</span></div>
+              <div className="payslip-field"><strong>SAP #:-</strong><span>{slip.sapNo || "-"}</span></div>
             </div>
 
-            <div className="payslip-summary-grid">
-              {summaryCards.map((card) => (
-                <article className="payslip-summary-card" key={card.label}>
-                  <span>{card.label}</span>
-                  <strong>{formatCurrency(card.value)}</strong>
-                </article>
-              ))}
-            </div>
-
-            <table className="print-report-table payslip-details-table">
+            <table className="payslip-form-lines">
               <thead>
                 <tr>
                   <th>Code</th>
-                  <th>Description</th>
+                  <th>Payment</th>
+                  <th>Amount</th>
+                  <th>Code</th>
+                  <th>Deduction</th>
                   <th>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {(slip.details || []).map((detail, detailIndex) => (
-                  <tr key={`${slip.employeeCode || "slip"}-${detail.wageCode || detailIndex}-${detailIndex}`}>
-                    <td>{detail.wageCode}</td>
-                    <td>{detail.description}</td>
-                    <td className="amount-cell">{formatCurrency(detail.amount)}</td>
-                  </tr>
-                ))}
-                {!slip.details?.length ? (
-                  <tr>
-                    <td colSpan="3">No payroll line items found for this slip.</td>
-                  </tr>
-                ) : null}
+                {Array.from({ length: lineCount }, (_, lineIndex) => {
+                  const payment = paymentLines[lineIndex];
+                  const deduction = deductionLines[lineIndex];
+                  return <tr key={`${slip.employeeCode || "slip"}-line-${lineIndex}`}><td>{payment?.wageCode || ""}</td><td>{payment?.description || ""}</td><td className="amount-cell">{payment ? formatCurrency(payment.amount) : ""}</td><td>{deduction?.wageCode || ""}</td><td>{deduction?.description || ""}</td><td className="amount-cell">{deduction ? formatCurrency(deduction.amount) : ""}</td></tr>;
+                })}
               </tbody>
             </table>
 
-            <div className="payslip-footer-row">
-              <span>Gross {formatCurrency(slip.grossPay)}</span>
-              <span>Deductions {formatCurrency(slip.totalDeductions)}</span>
-              <strong>Net {formatCurrency(slip.netPay)}</strong>
-            </div>
+            <footer className="payslip-form-footer">
+              <div className="payslip-bank-details"><strong>Bank {bankLabel || "-"}</strong><strong>Account # {slip.accountNo || "-"}</strong></div>
+              <div className="payslip-totals"><span>Pay</span><strong>{formatCurrency(slip.grossPay)}</strong><span>Ded.</span><strong>{formatCurrency(slip.totalDeductions)}</strong><span>Net</span><strong>{formatCurrency(slip.netPay)}</strong></div>
+            </footer>
           </section>
         );
       })}
@@ -11032,6 +11254,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <PaymentListPage />
         ) : activeItem === "List Of Payment" ? (
           <ListOfPaymentPage />
+        ) : activeItem === "Month Difference" ? (
+          <MonthDifferencePage />
         ) : activeItem === "Scale Audit Register" ? (
           <PayrollScaleAuditRegisterPage />
         ) : activeItem === "Budget Requirement" ? (
