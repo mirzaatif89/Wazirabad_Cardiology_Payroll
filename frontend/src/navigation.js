@@ -99,8 +99,7 @@ export const sidebarSections = [
       {
         label: "Banks",
         items: [
-          "Bank Code List",
-          "Bank Branch Code List"
+          "Banks & Branches"
         ]
       },
       {
@@ -150,6 +149,10 @@ export const pageSlugMap = sidebarSections.reduce(
   },
   { Dashboard: "index" }
 );
+
+// Keep existing bookmarked pages working after combining bank maintenance.
+pageSlugMap["Bank Code List"] = "bank-code-list";
+pageSlugMap["Bank Branch Code List"] = "bank-branch-code-list";
 
 export const slugPageMap = Object.fromEntries(
   Object.entries(pageSlugMap).map(([page, slug]) => [slug, page])

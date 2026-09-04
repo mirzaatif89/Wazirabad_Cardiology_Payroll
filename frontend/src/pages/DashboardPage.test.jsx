@@ -13,7 +13,24 @@ vi.mock("../services/api.js", async () => {
   return { ...actual, ...apiMocks };
 });
 
-import { MonthDifferencePage, PayslipView, formatServiceLength } from "./DashboardPage.jsx";
+import { MonthDifferencePage, PayslipView, formatServiceLength, getBankBranchesForBank } from "./DashboardPage.jsx";
+
+describe("Bank and branch relationship", () => {
+  const branches = [
+    { id: 1, bankCode: "BOP", code: "001", branch: "Main", isActive: 1, bankIsActive: 1 },
+    { id: 2, bankCode: "NBP", code: "001", branch: "City", isActive: 1, bankIsActive: 1 },
+    { id: 3, bankCode: "BOP", code: "002", branch: "Old", isActive: 0, bankIsActive: 1 }
+  ];
+
+  test("shows only active branches belonging to the selected bank", () => {
+    expect(getBankBranchesForBank(branches, "BOP")).toEqual([branches[0]]);
+    expect(getBankBranchesForBank(branches, "NBP")).toEqual([branches[1]]);
+  });
+
+  test("does not offer a branch until a bank is selected", () => {
+    expect(getBankBranchesForBank(branches, "")).toEqual([]);
+  });
+});
 
 describe("Month Difference user flow", () => {
   beforeEach(() => {

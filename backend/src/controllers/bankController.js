@@ -20,8 +20,8 @@ function validateBank(bank) {
 }
 
 function validateBankBranch(branch) {
-  if (!branch.code || !branch.branch) {
-    return "Branch code and branch name are required.";
+  if (!branch.bankId || !branch.code || !branch.branch) {
+    return "Bank, branch code, and branch name are required.";
   }
 
   return "";
@@ -93,14 +93,28 @@ export async function deleteBank(req, res) {
 
     return res.json({ message: "Bank code deleted successfully." });
   } catch (error) {
+    if (error.code === "BANK_HAS_BRANCHES") {
+      return res.status(409).json({ message: "This bank has linked branches. Reassign or remove those branches first." });
+    }
+
+    if (error.code === "BANK_IN_USE") {
+      return res.status(409).json({ message: "This bank is assigned to employees and cannot be deleted. Mark it inactive instead." });
+    }
+
     console.error("Bank delete failed:", error);
     return res.status(500).json({ message: "Bank delete failed." });
   }
 }
 
-export async function listBankBranches(_req, res) {
+export async function listBankBranches(req, res) {
   try {
-    return res.json({ branches: await getBankBranches() });
+    return res.json({
+      branches: await getBankBranches({
+        bankId: req.query.bank_id || null,
+        bankCode: req.query.bank_code || null,
+        includeInactive: req.query.include_inactive !== "false"
+      })
+    });
   } catch (error) {
     console.error("Bank branch list failed:", error);
     return res.status(500).json({ message: "Bank branch list failed." });
@@ -123,7 +137,11 @@ export async function createBankBranch(req, res) {
     });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Duplicate entry of branch code." });
+      return res.status(409).json({ message: "This branch code already exists for the selected bank." });
+    }
+
+    if (error.code === "ER_NO_REFERENCED_ROW_2") {
+      return res.status(400).json({ message: "Selected bank does not exist." });
     }
 
     console.error("Bank branch save failed:", error);
@@ -149,7 +167,11 @@ export async function updateBankBranch(req, res) {
     return res.json({ message: "Bank branch code updated successfully." });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "Duplicate entry of branch code." });
+      return res.status(409).json({ message: "This branch code already exists for the selected bank." });
+    }
+
+    if (error.code === "ER_NO_REFERENCED_ROW_2") {
+      return res.status(400).json({ message: "Selected bank does not exist." });
     }
 
     console.error("Bank branch update failed:", error);
@@ -167,6 +189,10 @@ export async function deleteBankBranch(req, res) {
 
     return res.json({ message: "Bank branch code deleted successfully." });
   } catch (error) {
+    if (error.code === "BRANCH_IN_USE") {
+      return res.status(409).json({ message: "This branch is assigned to employees and cannot be deleted. Mark it inactive instead." });
+    }
+
     console.error("Bank branch delete failed:", error);
     return res.status(500).json({ message: "Bank branch delete failed." });
   }

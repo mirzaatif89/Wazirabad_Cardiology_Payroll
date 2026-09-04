@@ -361,8 +361,13 @@ export async function deleteBank(id) {
   return data;
 }
 
-export async function getBankBranches() {
-  const response = await fetch(`${API_BASE_URL}/bank-branches`);
+export async function getBankBranches(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.bankId) params.set("bank_id", filters.bankId);
+  if (filters.bankCode) params.set("bank_code", filters.bankCode);
+  if (filters.includeInactive === false) params.set("include_inactive", "false");
+  const query = params.toString();
+  const response = await fetch(`${API_BASE_URL}/bank-branches${query ? `?${query}` : ""}`);
   const data = await response.json();
 
   if (!response.ok) {

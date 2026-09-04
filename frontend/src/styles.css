@@ -440,6 +440,101 @@ h1 {
   margin-bottom: 5px;
 }
 
+.bank-directory-workspace {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.bank-directory-intro {
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #cfe0dd;
+  border-radius: 18px;
+  background: linear-gradient(120deg, #f4fbf9, #e4f2ef);
+}
+
+.bank-directory-intro p,
+.bank-directory-intro h2,
+.bank-directory-intro span {
+  margin: 0;
+}
+
+.bank-directory-intro p {
+  color: #0b746b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bank-directory-intro h2 {
+  margin-top: 0.25rem;
+  color: #173b3f;
+}
+
+.bank-directory-intro span {
+  display: block;
+  margin-top: 0.35rem;
+  color: #527074;
+}
+
+.bank-directory-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.bank-directory-panel {
+  margin: 0;
+}
+
+.bank-active-toggle {
+  align-self: end;
+  display: flex !important;
+  min-height: 46px;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.bank-active-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.bank-directory-filters {
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) minmax(220px, 1fr);
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.bank-directory-filters label {
+  display: grid;
+  gap: 0.4rem;
+  color: #294b50;
+  font-weight: 700;
+}
+
+.bank-directory-filters input,
+.bank-directory-filters select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #bfd5d1;
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+  background: #ffffff;
+}
+
+.unassigned-bank {
+  color: #a43a3f;
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .bank-directory-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
 .nav-main,
 .nav-submenu button,
 .user-actions button {

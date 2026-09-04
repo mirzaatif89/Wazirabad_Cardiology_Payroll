@@ -211,14 +211,14 @@ const employeeFormSections = [
   }
 ];
 
-function EmployeeFormField({ field, value, onChange, onKeyDown, onGenerateEmployeeNo, required = false, className = "", children }) {
+function EmployeeFormField({ field, value, onChange, onKeyDown, onGenerateEmployeeNo, required = false, disabled = false, className = "", children }) {
   const wrapperClassName = [field.wide ? "wide-field" : "", className].filter(Boolean).join(" ");
 
   return (
     <label className={wrapperClassName}>
       <span>{field.label}</span>
       {field.type === "select" ? (
-        <select name={field.name} value={value} onChange={onChange}>
+        <select name={field.name} value={value} onChange={onChange} disabled={disabled}>
           <option value="">Select</option>
           {field.options.map((option) => (
             <option value={option} key={option}>{option}</option>
@@ -246,6 +246,7 @@ function EmployeeFormField({ field, value, onChange, onKeyDown, onGenerateEmploy
           onChange={onChange}
           onKeyDown={onKeyDown}
           readOnly={field.readOnly}
+          disabled={disabled}
           required={required}
           placeholder={employeeCodeLookupFieldNames.has(field.name) ? "F1" : undefined}
         />
@@ -285,7 +286,18 @@ function findBankByCode(banks, code) {
   return banks.find((bank) => bank.code.toLowerCase() === cleanCode) || null;
 }
 
-function findBankBranchByCode(branches, code) {
+export function getBankBranchesForBank(branches, bankCode, includeInactive = false) {
+  const cleanBankCode = String(bankCode || "").trim().toLowerCase();
+  if (!cleanBankCode) return [];
+
+  return branches.filter((branch) => {
+    const belongsToBank = String(branch.bankCode || "").trim().toLowerCase() === cleanBankCode;
+    const isActive = Number(branch.isActive ?? 1) === 1 && Number(branch.bankIsActive ?? 1) === 1;
+    return belongsToBank && (includeInactive || isActive);
+  });
+}
+
+function findBankBranchByCode(branches, code, bankCode = "") {
   const cleanCode = code.trim().toLowerCase();
 
   if (!cleanCode) {
@@ -294,7 +306,8 @@ function findBankBranchByCode(branches, code) {
 
   const normalizedCode = cleanCode.replace(/^0+(?=\d)/, "");
 
-  return branches.find((branch) => {
+  const availableBranches = bankCode ? getBankBranchesForBank(branches, bankCode) : branches;
+  return availableBranches.find((branch) => {
     const branchCode = String(branch.code || "").trim().toLowerCase();
     const normalizedBranchCode = branchCode.replace(/^0+(?=\d)/, "");
 
@@ -315,7 +328,8 @@ function getEmployeeCodeLookupConfig(fieldName, sources) {
     designations = [],
     accountCodes = [],
     banks = [],
-    bankBranches = []
+    bankBranches = [],
+    selectedBankCode = ""
   } = sources;
 
   if (fieldName === "designationCode") {
@@ -352,7 +366,7 @@ function getEmployeeCodeLookupConfig(fieldName, sources) {
       eyebrow: "Bank Code",
       title: "Bank Code Lookup",
       emptyMessage: "No bank code found.",
-      rows: banks.map((item, index) => ({
+      rows: banks.filter((item) => Number(item.isActive ?? 1) === 1).map((item, index) => ({
         key: `bank-${item.code}-${index}`,
         code: item.code || "",
         description: item.bank || ""
@@ -361,12 +375,13 @@ function getEmployeeCodeLookupConfig(fieldName, sources) {
   }
 
   if (fieldName === "bankBranchCode") {
+    const availableBranches = getBankBranchesForBank(bankBranches, selectedBankCode);
     return {
       fieldName,
       eyebrow: "Branch Code",
       title: "Branch Code Lookup",
-      emptyMessage: "No branch code found.",
-      rows: bankBranches.map((item, index) => ({
+      emptyMessage: selectedBankCode ? "No active branch found for the selected bank." : "Select a bank first.",
+      rows: availableBranches.map((item, index) => ({
         key: `branch-${item.code}-${index}`,
         code: item.code || "",
         description: item.branch || ""
@@ -488,9 +503,9 @@ function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }
           <aside className="lookup-help-card" aria-label="Bank account setup steps">
             <strong>Where to add bank account details</strong>
             <ol>
-              <li>Open Management then Bank Code Making/Edit and add the bank code/name.</li>
-              <li>Open Management then Bank Branch Code Making/Edit and add the branch code/name.</li>
-              <li>Open New Employee Entry or Employee List edit, select Bank Code and Branch Code, then enter Account No.</li>
+              <li>Open Management, Banks, then Banks &amp; Branches.</li>
+              <li>Create the bank first, then create or assign each branch under that bank.</li>
+              <li>Return to the employee, select Bank Code first, then select one of that bank's branches and enter Account No.</li>
               <li>Save the employee. Payroll and bank reports will read the saved bank details from the employee record.</li>
             </ol>
           </aside>
@@ -564,7 +579,8 @@ function NewEmployeeEntryForm({ onSaved }) {
     designations,
     accountCodes,
     banks,
-    bankBranches
+    bankBranches,
+    selectedBankCode: form.bankCode
   };
 
   const loadNextEmployeeNo = async () => {
@@ -614,15 +630,24 @@ function NewEmployeeEntryForm({ onSaved }) {
       setForm((current) => ({
         ...current,
         bankCode: value,
-        bank: matchedBank ? matchedBank.bank : ""
+        bank: matchedBank ? matchedBank.bank : "",
+        bankBranchCode: current.bankCode === value ? current.bankBranchCode : "",
+        bankBranch: current.bankCode === value ? current.bankBranch : ""
       }));
+      setBranchStatus("");
       return;
     }
 
     if (name === "bankBranchCode") {
-      const matchedBranch = findBankBranchByCode(bankBranches, value);
+      const matchedBranch = findBankBranchByCode(bankBranches, value, form.bankCode);
 
-      setBranchStatus(value.trim() && !matchedBranch ? "Branch code not found." : "");
+      setBranchStatus(
+        value.trim() && !form.bankCode
+          ? "Select a bank before selecting its branch."
+          : value.trim() && !matchedBranch
+            ? "Branch does not belong to the selected bank."
+            : ""
+      );
       setForm((current) => ({
         ...current,
         bankBranchCode: value,
@@ -778,6 +803,7 @@ function NewEmployeeEntryForm({ onSaved }) {
                     onKeyDown={(event) => handleCodeFieldKeyDown(event, field.name)}
                     onGenerateEmployeeNo={field.name === "employeeNo" ? handleGenerateEmployeeNo : null}
                     required={field.name === "employeeNo" || field.name === "name"}
+                    disabled={field.name === "bankBranchCode" && !form.bankCode}
                   />
                 );
               })}
@@ -848,7 +874,8 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
     designations,
     accountCodes,
     banks,
-    bankBranches
+    bankBranches,
+    selectedBankCode: editForm?.bankCode || ""
   };
 
   const searchableEmployees = employees.filter((employee) => {
@@ -1104,13 +1131,15 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
       setEditForm((current) => ({
         ...current,
         bankCode: value,
-        bank: matchedBank ? matchedBank.bank : ""
+        bank: matchedBank ? matchedBank.bank : "",
+        bankBranchCode: current.bankCode === value ? current.bankBranchCode : "",
+        bankBranch: current.bankCode === value ? current.bankBranch : ""
       }));
       return;
     }
 
     if (name === "bankBranchCode") {
-      const matchedBranch = findBankBranchByCode(bankBranches, value);
+      const matchedBranch = findBankBranchByCode(bankBranches, value, editForm.bankCode);
 
       setEditForm((current) => ({
         ...current,
@@ -1269,6 +1298,7 @@ function EmployeeBasicDataInquiry({ onAddEmployee }) {
                       onChange={updateEditField}
                       onKeyDown={(event) => handleEditCodeFieldKeyDown(event, field.name)}
                       required={field.name === "employeeNo" || field.name === "name"}
+                      disabled={field.name === "bankBranchCode" && !editForm.bankCode}
                       className={field.name === "stopDate" ? "stop-date-pay-field" : ""}
                     >
                       {field.name === "stopDate" ? (
@@ -1840,8 +1870,8 @@ function DesignationCodeManagement() {
   );
 }
 
-function BankCodeManagement() {
-  const emptyBankForm = { code: "", bank: "" };
+function BankCodeManagement({ onChanged }) {
+  const emptyBankForm = { code: "", bank: "", isActive: true };
   const [banks, setBanks] = useState([]);
   const [form, setForm] = useState(emptyBankForm);
   const [editingBank, setEditingBank] = useState(null);
@@ -1895,13 +1925,14 @@ function BankCodeManagement() {
     setStatus({ type: "", message: "" });
 
     try {
-      const payload = { code: form.code.trim(), bank: form.bank.trim() };
+      const payload = { code: form.code.trim(), bank: form.bank.trim(), isActive: form.isActive };
       const result = editingBank
         ? await updateBank(editingBank.id, payload)
         : await createBank(payload);
       setStatus({ type: "success", message: result.message });
       resetForm();
       await loadBanks();
+      if (onChanged) onChanged();
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     } finally {
@@ -1921,6 +1952,7 @@ function BankCodeManagement() {
         resetForm();
       }
       await loadBanks();
+      if (onChanged) onChanged();
     } catch (error) {
       setStatus({ type: "error", message: error.message });
     }
@@ -1963,6 +1995,14 @@ function BankCodeManagement() {
             required
           />
         </label>
+        <label className="bank-active-toggle">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
+          />
+          <span>Active bank</span>
+        </label>
         <div className="department-form-actions">
           <button type="button" onClick={resetForm}>Clear</button>
           <button type="submit" disabled={saving}>
@@ -1996,6 +2036,9 @@ function BankCodeManagement() {
             <tr>
               <th>Code</th>
               <th>Bank</th>
+              <th>Status</th>
+              <th>Branches</th>
+              <th>Employees</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -2004,6 +2047,9 @@ function BankCodeManagement() {
               <tr key={bank.id}>
                 <td>{bank.code}</td>
                 <td>{bank.bank}</td>
+                <td><span className={`allowance-status ${Number(bank.isActive) === 1 ? "active" : "expired"}`}>{Number(bank.isActive) === 1 ? "Active" : "Inactive"}</span></td>
+                <td>{bank.branchCount || 0}</td>
+                <td>{bank.employeeCount || 0}</td>
                 <td>
                   <select
                     className="account-action-select"
@@ -2012,7 +2058,7 @@ function BankCodeManagement() {
                     onChange={(event) => {
                       if (event.target.value === "edit") {
                         setEditingBank(bank);
-                        setForm({ code: bank.code, bank: bank.bank });
+                        setForm({ code: bank.code, bank: bank.bank, isActive: Number(bank.isActive) === 1 });
                         setStatus({ type: "", message: "" });
                       }
 
@@ -2031,7 +2077,7 @@ function BankCodeManagement() {
 
             {!displayedBanks.length && !loading ? (
               <tr>
-                <td colSpan="3">{bankSearchTerm ? "No matching bank codes found." : "No bank codes found."}</td>
+                <td colSpan="6">{bankSearchTerm ? "No matching bank codes found." : "No bank codes found."}</td>
               </tr>
             ) : null}
           </tbody>
@@ -2239,6 +2285,175 @@ function BankBranchCodeManagement() {
         </table>
       </div>
     </section>
+  );
+}
+
+function LinkedBankBranchManagement({ banksRevision }) {
+  const emptyForm = { bankId: "", code: "", branch: "", isActive: true };
+  const [banks, setBanks] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [editingBranch, setEditingBranch] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [bankFilter, setBankFilter] = useState("");
+  const [status, setStatus] = useState({ type: "", message: "Loading linked branches..." });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadDirectory = async () => {
+    setLoading(true);
+    try {
+      const [bankRows, branchRows] = await Promise.all([getBanks(), getBankBranches()]);
+      setBanks(bankRows);
+      setBranches(branchRows);
+      setStatus({
+        type: "success",
+        message: branchRows.length ? `${branchRows.length} linked branch record(s) found.` : "No branch records found."
+      });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDirectory();
+  }, [banksRevision]);
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingBranch(null);
+  };
+
+  const saveBranch = async (event) => {
+    event.preventDefault();
+    const cleanCode = form.code.trim().toLowerCase();
+    const duplicate = branches.find((branch) =>
+      String(branch.bankId) === String(form.bankId)
+      && String(branch.code).trim().toLowerCase() === cleanCode
+      && branch.id !== editingBranch?.id
+    );
+    if (duplicate) {
+      setStatus({ type: "error", message: "This branch code already exists for the selected bank." });
+      return;
+    }
+
+    setSaving(true);
+    setStatus({ type: "", message: "" });
+    try {
+      const payload = {
+        bankId: form.bankId,
+        code: form.code.trim(),
+        branch: form.branch.trim(),
+        isActive: form.isActive
+      };
+      const result = editingBranch
+        ? await updateBankBranch(editingBranch.id, payload)
+        : await createBankBranch(payload);
+      setStatus({ type: "success", message: result.message });
+      resetForm();
+      await loadDirectory();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeBranch = async (branch) => {
+    if (!window.confirm(`Delete ${branch.bankName || "Unassigned"} branch ${branch.code} - ${branch.branch}?`)) return;
+    try {
+      const result = await deleteBankBranch(branch.id);
+      setStatus({ type: "success", message: result.message });
+      if (editingBranch?.id === branch.id) resetForm();
+      await loadDirectory();
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  };
+
+  const query = searchTerm.trim().toLowerCase();
+  const displayedBranches = branches.filter((branch) => {
+    const matchesBank = !bankFilter || String(branch.bankId || "") === bankFilter;
+    const matchesSearch = !query || [branch.code, branch.branch, branch.bankCode, branch.bankName]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+    return matchesBank && matchesSearch;
+  });
+
+  return (
+    <section className="employee-entry-panel bank-directory-panel" aria-label="Linked bank branches">
+      <div className="form-title-row">
+        <div><p>Bank Directory</p><h2>Branches</h2></div>
+        <span>{editingBranch ? "Editing branch" : "New branch"}</span>
+      </div>
+
+      <form className="department-code-form" onSubmit={saveBranch}>
+        <label>
+          <span>Parent Bank</span>
+          <select value={form.bankId} onChange={(event) => setForm((current) => ({ ...current, bankId: event.target.value }))} required>
+            <option value="">Select bank</option>
+            {banks.map((bank) => <option value={bank.id} key={bank.id}>{bank.code} - {bank.bank}{Number(bank.isActive) === 1 ? "" : " (Inactive)"}</option>)}
+          </select>
+        </label>
+        <label><span>Branch Code</span><input value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} required /></label>
+        <label><span>Branch Name</span><input value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))} required /></label>
+        <label className="bank-active-toggle"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /><span>Active branch</span></label>
+        <div className="department-form-actions">
+          <button type="button" onClick={resetForm}>Clear</button>
+          <button type="submit" disabled={saving}>{saving ? "Saving..." : editingBranch ? "Update Branch" : "Save Branch"}</button>
+        </div>
+      </form>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p> : null}
+
+      <div className="bank-directory-filters">
+        <label><span>Search bank or branch</span><input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Code, bank name, branch name..." /></label>
+        <label><span>Filter by bank</span><select value={bankFilter} onChange={(event) => setBankFilter(event.target.value)}><option value="">All banks</option>{banks.map((bank) => <option value={bank.id} key={bank.id}>{bank.code} - {bank.bank}</option>)}</select></label>
+      </div>
+
+      <div className="table-wrap">
+        <table className="department-table">
+          <thead><tr><th>Bank</th><th>Branch Code</th><th>Branch</th><th>Status</th><th>Employees</th><th>Actions</th></tr></thead>
+          <tbody>
+            {displayedBranches.map((branch) => (
+              <tr key={branch.id}>
+                <td>{branch.bankName ? `${branch.bankCode} - ${branch.bankName}` : <span className="unassigned-bank">Unassigned</span>}</td>
+                <td>{branch.code}</td><td>{branch.branch}</td>
+                <td><span className={`allowance-status ${Number(branch.isActive) === 1 ? "active" : "expired"}`}>{Number(branch.isActive) === 1 ? "Active" : "Inactive"}</span></td>
+                <td>{branch.employeeCount || 0}</td>
+                <td><select className="account-action-select" value="" aria-label={`Actions for branch ${branch.code}`} onChange={(event) => {
+                  if (event.target.value === "edit") {
+                    setEditingBranch(branch);
+                    setForm({ bankId: String(branch.bankId || ""), code: branch.code, branch: branch.branch, isActive: Number(branch.isActive) === 1 });
+                    setStatus({ type: "", message: "" });
+                  }
+                  if (event.target.value === "delete") removeBranch(branch);
+                }}><option value="">Action</option><option value="edit">Edit / Assign Bank</option><option value="delete">Delete</option></select></td>
+              </tr>
+            ))}
+            {!displayedBranches.length && !loading ? <tr><td colSpan="6">No matching linked branches found.</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function BankDirectoryManagement() {
+  const [banksRevision, setBanksRevision] = useState(0);
+  return (
+    <div className="bank-directory-workspace">
+      <section className="bank-directory-intro">
+        <p>Management</p>
+        <h2>Banks &amp; Branches</h2>
+        <span>Create each bank once, then maintain all of its branches from the same workspace.</span>
+      </section>
+      <div className="bank-directory-grid">
+        <BankCodeManagement onChanged={() => setBanksRevision((value) => value + 1)} />
+        <LinkedBankBranchManagement banksRevision={banksRevision} />
+      </div>
+    </div>
   );
 }
 
@@ -11306,10 +11521,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <DepartmentCodeManagement />
         ) : activeItem === "Designation Code Making/Edit" || activeItem === "Designation Code List" ? (
           <DesignationCodeManagement />
-        ) : activeItem === "Bank Code Making/Edit" || activeItem === "Bank Code List" ? (
-          <BankCodeManagement />
-        ) : activeItem === "Bank Branch Code Making/Edit" || activeItem === "Bank Branch Code List" ? (
-          <BankBranchCodeManagement />
+        ) : ["Banks & Branches", "Bank Code Making/Edit", "Bank Code List", "Bank Branch Code Making/Edit", "Bank Branch Code List"].includes(activeItem) ? (
+          <BankDirectoryManagement />
         ) : activeItem === "Accounts Code Making" || activeItem === "Account Code List" || activeItem === "Accounts Code List" ? (
           <AccountCodeManagement />
         ) : activeItem === "Wage Type Code Making" || activeItem === "Wage Type Code List" ? (

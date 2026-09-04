@@ -6,6 +6,7 @@ import {
   insertEmployee,
   updateEmployeeById
 } from "../models/employeeModel.js";
+import { resolveEmployeeBankSelection } from "../models/bankModel.js";
 
 function validateEmployee(employee) {
   if (!employee.employeeNo || !employee.name) {
@@ -63,7 +64,20 @@ export async function createEmployee(req, res) {
   }
 
   try {
-    const id = await insertEmployee(req.body);
+    const bankSelection = await resolveEmployeeBankSelection(req.body);
+    if (bankSelection.message) {
+      return res.status(400).json({ message: bankSelection.message });
+    }
+    const employee = bankSelection.bank
+      ? {
+          ...req.body,
+          bankCode: bankSelection.bank.code,
+          bank: bankSelection.bank.name,
+          bankBranchCode: bankSelection.branch.code,
+          bankBranch: bankSelection.branch.name
+        }
+      : req.body;
+    const id = await insertEmployee(employee);
     return res.status(201).json({
       message: "Employee saved successfully.",
       employee: {
@@ -91,7 +105,20 @@ export async function updateEmployee(req, res) {
   }
 
   try {
-    const affectedRows = await updateEmployeeById(req.params.id, req.body);
+    const bankSelection = await resolveEmployeeBankSelection(req.body);
+    if (bankSelection.message) {
+      return res.status(400).json({ message: bankSelection.message });
+    }
+    const employeePayload = bankSelection.bank
+      ? {
+          ...req.body,
+          bankCode: bankSelection.bank.code,
+          bank: bankSelection.bank.name,
+          bankBranchCode: bankSelection.branch.code,
+          bankBranch: bankSelection.branch.name
+        }
+      : req.body;
+    const affectedRows = await updateEmployeeById(req.params.id, employeePayload);
 
     if (!affectedRows) {
       return res.status(404).json({ message: "Employee not found." });
