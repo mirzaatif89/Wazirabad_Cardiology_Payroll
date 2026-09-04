@@ -13,7 +13,52 @@ vi.mock("../services/api.js", async () => {
   return { ...actual, ...apiMocks };
 });
 
-import { MonthDifferencePage, PayslipView, formatServiceLength, getBankBranchesForBank } from "./DashboardPage.jsx";
+import {
+  EmployeeCodeLookupModal,
+  MonthDifferencePage,
+  PayslipView,
+  formatServiceLength,
+  getBankBranchesForBank
+} from "./DashboardPage.jsx";
+
+describe("Employee code lookup keyboard selection", () => {
+  test("selects the first visible bank when Enter is pressed in the search input", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    function LookupHarness() {
+      const [search, setSearch] = React.useState("");
+      return (
+        <EmployeeCodeLookupModal
+          lookup={{
+            fieldName: "bankCode",
+            eyebrow: "Bank Code",
+            title: "Bank Code Lookup",
+            emptyMessage: "No bank code found.",
+            rows: [
+              { key: "bank-bop", code: "BOP", description: "Bank of Punjab" },
+              { key: "bank-nbp", code: "NBP", description: "National Bank" }
+            ]
+          }}
+          search={search}
+          onSearch={setSearch}
+          onClose={() => {}}
+          onSelect={onSelect}
+        />
+      );
+    }
+
+    render(<LookupHarness />);
+    const searchInput = screen.getByPlaceholderText("Search code or description");
+    await user.type(searchInput, "Punjab{Enter}");
+
+    expect(onSelect).toHaveBeenCalledWith({
+      key: "bank-bop",
+      code: "BOP",
+      description: "Bank of Punjab"
+    });
+  });
+});
 
 describe("Bank and branch relationship", () => {
   const branches = [

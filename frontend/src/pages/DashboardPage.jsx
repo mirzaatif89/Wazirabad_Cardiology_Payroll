@@ -466,7 +466,7 @@ function getFiscalYearRangeFields(fiscalYear) {
   };
 }
 
-function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
+export function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
   const [showHelp, setShowHelp] = useState(false);
 
   if (!lookup) {
@@ -514,6 +514,12 @@ function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }
           type="search"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && filteredRows.length) {
+              event.preventDefault();
+              onSelect(filteredRows[0]);
+            }
+          }}
           placeholder="Search code or description"
           autoFocus
         />
