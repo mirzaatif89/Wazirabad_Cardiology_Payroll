@@ -3377,6 +3377,32 @@ h1 {
   font-weight: 650;
 }
 
+.employee-advances-guide {
+  margin-bottom: 18px;
+}
+
+.advance-mode-guide {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.advance-mode-guide > div {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid #cde3df;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.advance-mode-guide span {
+  color: #4f686b;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
 .salary-period-form {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.75fr) minmax(180px, 0.85fr) auto;
@@ -4628,7 +4654,8 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .payroll-process-guide ol {
+  .payroll-process-guide ol,
+  .advance-mode-guide {
     grid-template-columns: 1fr;
   }
 

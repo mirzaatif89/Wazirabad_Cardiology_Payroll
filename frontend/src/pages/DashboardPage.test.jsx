@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
+  getEmployeeAdvances: vi.fn(),
+  getEmployees: vi.fn(),
+  getNextEmployeeAdvanceNo: vi.fn(),
   getPayrollMonthDifference: vi.fn(),
   getPayrollRuns: vi.fn()
 }));
@@ -15,11 +18,43 @@ vi.mock("../services/api.js", async () => {
 
 import {
   EmployeeCodeLookupModal,
+  EmployeeAdvancesPage,
   MonthDifferencePage,
   PayslipView,
   formatServiceLength,
   getBankBranchesForBank
 } from "./DashboardPage.jsx";
+
+describe("Employee advances help", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiMocks.getEmployeeAdvances.mockResolvedValue([]);
+    apiMocks.getEmployees.mockResolvedValue([]);
+    apiMocks.getNextEmployeeAdvanceNo.mockResolvedValue({ data: { advanceNo: 1 } });
+  });
+
+  test("opens a field-specific guide and closes it from the same help button", async () => {
+    const user = userEvent.setup();
+    render(<EmployeeAdvancesPage />);
+
+    const helpButton = screen.getByRole("button", { name: "? How Advances Work" });
+    expect(helpButton).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("complementary", { name: "How employee advances work" })).not.toBeInTheDocument();
+
+    await user.click(helpButton);
+
+    expect(helpButton).toHaveAttribute("aria-expanded", "true");
+    const helpPanel = screen.getByRole("complementary", { name: "How employee advances work" });
+    expect(helpPanel).toBeVisible();
+    expect(within(helpPanel).getByText(/deduction wage code 4002/i)).toBeVisible();
+    expect(within(helpPanel).getByText("Percentage")).toBeVisible();
+    expect(within(helpPanel).getByText("Fixed amount")).toBeVisible();
+    expect(within(helpPanel).getByText("Hold")).toBeVisible();
+
+    await user.click(helpButton);
+    expect(screen.queryByRole("complementary", { name: "How employee advances work" })).not.toBeInTheDocument();
+  });
+});
 
 describe("Employee code lookup keyboard selection", () => {
   test("selects the first visible bank when Enter is pressed in the search input", async () => {

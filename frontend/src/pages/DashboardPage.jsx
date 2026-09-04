@@ -6355,13 +6355,14 @@ function ArrearPaymentPage() {
   );
 }
 
-function EmployeeAdvancesPage() {
+export function EmployeeAdvancesPage() {
   const today = new Date().toISOString().slice(0, 10);
   const [advances, setAdvances] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [form, setForm] = useState({
     advanceNo: "",
@@ -6564,11 +6565,44 @@ function EmployeeAdvancesPage() {
           <h2>Employee Advances</h2>
         </div>
         <div className="title-actions">
+          <button
+            className="payroll-guide-toggle"
+            type="button"
+            aria-expanded={showHelp}
+            aria-controls="employee-advances-help"
+            onClick={() => setShowHelp((current) => !current)}
+          >
+            ? How Advances Work
+          </button>
           <button className="refresh-button" type="button" onClick={loadData} disabled={loading}>
             {loading ? "Loading..." : "Refresh"}
           </button>
         </div>
       </div>
+
+      {showHelp ? (
+        <aside id="employee-advances-help" className="payroll-process-guide employee-advances-guide no-print" aria-label="How employee advances work">
+          <div>
+            <p>Employee Advance Help</p>
+            <h3>From issuing an advance to recovering it through payroll</h3>
+          </div>
+          <ol>
+            <li><strong>Create:</strong> Select the employee, issue date, advance amount, and monthly installment.</li>
+            <li><strong>Choose recovery:</strong> Select a deduction mode using the guide below, then save the advance as Active.</li>
+            <li><strong>Run payroll:</strong> Each monthly payroll automatically adds the calculated recovery as deduction wage code 4002.</li>
+            <li><strong>Track balance:</strong> Processing payroll reduces the balance. The deduction never exceeds the remaining balance.</li>
+            <li><strong>Finish:</strong> The advance closes automatically when its balance reaches zero. You can also close or void it manually.</li>
+            <li><strong>Reverse safely:</strong> Reopening or voiding a processed payroll restores that payroll's recovery to the advance balance.</li>
+          </ol>
+          <div className="advance-mode-guide" aria-label="Advance deduction modes">
+            <div><strong>Full installment</strong><span>Deducts the Monthly Installment. If it is empty or zero, the remaining balance is deducted.</span></div>
+            <div><strong>Percentage</strong><span>Deducts the Deduction Value percentage of the Monthly Installment.</span></div>
+            <div><strong>Fixed amount</strong><span>Deducts the Deduction Value as a fixed amount each payroll month.</span></div>
+            <div><strong>Hold</strong><span>Skips recovery until you edit the advance and select another mode.</span></div>
+          </div>
+          <p className="payroll-guide-note">Only Active advances with a balance greater than zero are recovered. Deduction Value is used only for Percentage and Fixed amount modes.</p>
+        </aside>
+      ) : null}
 
       {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
 
