@@ -1540,11 +1540,7 @@ export async function getGrandBankSummary(filters) {
   return { banks, grandTotal: banks.reduce((total, bank) => total + bank.totalAmount, 0) };
 }
 
-export async function getPayrollMonthDifference({ previous, current }) {
-  const [previousRun, currentRun] = await Promise.all([
-    getRun(previous),
-    getRun(current)
-  ]);
+export function buildPayrollMonthDifference(previousRows, currentRows) {
   const zeroTotals = {
     previousGross: 0,
     currentGross: 0,
@@ -1557,20 +1553,6 @@ export async function getPayrollMonthDifference({ previous, current }) {
     netDifference: 0
   };
 
-  if (!previousRun || !currentRun) {
-    return {
-      previousPeriod: { month: Number(previous.month), year: Number(previous.year), available: Boolean(previousRun) },
-      currentPeriod: { month: Number(current.month), year: Number(current.year), available: Boolean(currentRun) },
-      employeeCounts: { previous: 0, current: 0, compared: 0 },
-      rows: [],
-      totals: zeroTotals
-    };
-  }
-
-  const [previousRows, currentRows] = await Promise.all([
-    getRunRows(previous),
-    getRunRows(current)
-  ]);
   const previousByEmployee = new Map(previousRows.map((row) => [String(row.employeeCode), row]));
   const currentByEmployee = new Map(currentRows.map((row) => [String(row.employeeCode), row]));
   const employeeCodes = [...new Set([...previousByEmployee.keys(), ...currentByEmployee.keys()])]
@@ -1618,12 +1600,33 @@ export async function getPayrollMonthDifference({ previous, current }) {
     netDifference: result.netDifference + row.netDifference
   }), zeroTotals);
 
-  return {
+  return { rows, totals };
+}
+
+export async function getPayrollMonthDifference({ previous, current }) {
+  const [previousRun, currentRun] = await Promise.all([
+    getRun(previous),
+    getRun(current)
+  ]);
+  const availability = {
     previousPeriod: { month: Number(previous.month), year: Number(previous.year), available: Boolean(previousRun) },
-    currentPeriod: { month: Number(current.month), year: Number(current.year), available: Boolean(currentRun) },
-    employeeCounts: { previous: previousRows.length, current: currentRows.length, compared: rows.length },
-    rows,
-    totals
+    currentPeriod: { month: Number(current.month), year: Number(current.year), available: Boolean(currentRun) }
+  };
+
+  if (!previousRun || !currentRun) {
+    const comparison = buildPayrollMonthDifference([], []);
+    return { ...availability, employeeCounts: { previous: 0, current: 0, compared: 0 }, ...comparison };
+  }
+
+  const [previousRows, currentRows] = await Promise.all([
+    getRunRows(previous),
+    getRunRows(current)
+  ]);
+  const comparison = buildPayrollMonthDifference(previousRows, currentRows);
+  return {
+    ...availability,
+    employeeCounts: { previous: previousRows.length, current: currentRows.length, compared: comparison.rows.length },
+    ...comparison
   };
 }
 

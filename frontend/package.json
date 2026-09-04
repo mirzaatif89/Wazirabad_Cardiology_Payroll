@@ -7,7 +7,8 @@
     "sync:pages": "node scripts/sync-html-pages.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "npm run sync:pages && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
@@ -16,5 +17,12 @@
     "react-dom": "^19.2.0",
     "vite": "^7.1.12",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.11"
   }
 }

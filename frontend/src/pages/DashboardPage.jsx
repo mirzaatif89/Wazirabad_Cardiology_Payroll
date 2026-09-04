@@ -9782,7 +9782,7 @@ function GrandBankSummaryPage() {
   return <PayrollReportShell title="Grand Bank Summary" endpoint="grand-bank-summary" allowExcel exportRows={(r) => r.banks || []}>{(report, filters) => <div className="arrear-report-print-area"><ReportLetterhead title="Grand Bank Summary" filterSummary={`${filters.month}/${filters.year}`} /><table className="print-report-table"><thead><tr><th>Bank Name</th><th>Total Employees</th><th>Total Amount</th></tr></thead><tbody>{(report.banks || []).map((b) => <tr key={b.bankName}><td>{b.bankName}</td><td>{b.employeeCount}</td><td className="amount-cell">{formatCurrency(b.totalAmount)}</td></tr>)}<tr className="report-total-row"><td colSpan="2">Grand Total</td><td className="amount-cell">{formatCurrency(report.grandTotal)}</td></tr></tbody></table></div>}</PayrollReportShell>;
 }
 
-function MonthDifferencePage() {
+export function MonthDifferencePage() {
   const today = new Date();
   const previousDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const [filters, setFilters] = useState({
@@ -9972,7 +9972,7 @@ function formatSlipPeriodLabel(slip, filters = {}) {
   return "Payroll Period";
 }
 
-function formatServiceLength(dateOfJoining, month, year) {
+export function formatServiceLength(dateOfJoining, month, year) {
   if (!dateOfJoining) return "-";
   const joined = new Date(`${dateOfJoining}T00:00:00`);
   const periodEnd = month && year
@@ -9990,7 +9990,7 @@ function formatServiceLength(dateOfJoining, month, year) {
   return `${years} Yr${years === 1 ? "" : "s"} ${months} Month${months === 1 ? "" : "s"}`;
 }
 
-function PayslipView({ slips, filters }) {
+export function PayslipView({ slips, filters }) {
   return (
     <div className="arrear-report-print-area payslip-report-area">
       {slips.map((slip, index) => {

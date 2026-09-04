@@ -12,6 +12,10 @@ const htmlInputs = Object.fromEntries(
 );
 
 export default defineConfig({
+  test: {
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.js"
+  },
   build: {
     rollupOptions: {
       input: htmlInputs
