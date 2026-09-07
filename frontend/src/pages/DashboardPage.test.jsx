@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -7,6 +7,11 @@ const apiMocks = vi.hoisted(() => ({
   getEmployeeAdvances: vi.fn(),
   getEmployees: vi.fn(),
   getNextEmployeeAdvanceNo: vi.fn(),
+  getChartOfAccounts: vi.fn(),
+  getWageCodes: vi.fn(),
+  getDepartments: vi.fn(),
+  getFiscalYears: vi.fn(),
+  getPayrollCurrentPeriod: vi.fn(),
   getPayrollMonthDifference: vi.fn(),
   getPayrollRuns: vi.fn()
 }));
@@ -21,6 +26,9 @@ import {
   EmployeeAdvancesPage,
   MonthDifferencePage,
   PayslipView,
+  PayrollHistoryPage,
+  PayrollProcessPage,
+  WageCodeMaster,
   formatServiceLength,
   getBankBranchesForBank
 } from "./DashboardPage.jsx";
@@ -92,6 +100,146 @@ describe("Employee code lookup keyboard selection", () => {
       code: "BOP",
       description: "Bank of Punjab"
     });
+  });
+});
+
+describe("Wage code account lookup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiMocks.getWageCodes.mockResolvedValue([]);
+    apiMocks.getChartOfAccounts.mockResolvedValue([
+      { code: "1010", name: "Bank Account" },
+      { code: "2000", name: "Accounts Payable" }
+    ]);
+  });
+
+  test("opens account lookup with F1 and selects the highlighted row with arrows and Enter", async () => {
+    const user = userEvent.setup();
+    render(<WageCodeMaster />);
+
+    const accountInput = await screen.findByLabelText("Attached Account Code");
+    await user.click(accountInput);
+    fireEvent.keyDown(accountInput, { key: "F1", code: "F1", keyCode: 112, which: 112 });
+
+    const dialog = await screen.findByRole("dialog", { name: "Account Code Lookup" });
+    const lookupSearch = within(dialog).getByPlaceholderText("Search code or description");
+
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(accountInput).toHaveValue("2000");
+    expect(lookupSearch).not.toBeInTheDocument();
+  });
+});
+
+describe("Payroll processing current month and history", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const today = new Date();
+    const fiscalStartYear = today.getMonth() + 1 >= 7 ? today.getFullYear() : today.getFullYear() - 1;
+    const fiscalEndYear = fiscalStartYear + 1;
+    apiMocks.getDepartments.mockResolvedValue([{ code: "999", department: "All Departments" }]);
+    apiMocks.getFiscalYears.mockResolvedValue([
+      {
+        id: 1,
+        name: `${fiscalStartYear}-${String(fiscalEndYear).slice(-2)}`,
+        startDate: `${fiscalStartYear}-07-01`,
+        endDate: `${fiscalEndYear}-06-30`,
+        isActive: 1
+      }
+    ]);
+    apiMocks.getPayrollCurrentPeriod.mockResolvedValue({ data: null });
+    apiMocks.getPayrollRuns.mockImplementation((filters) => {
+      if (!filters || !Object.keys(filters).length) {
+        return Promise.resolve({
+          data: [
+            {
+              id: 10,
+              paymentMonth: 8,
+              paymentYear: 2026,
+              fiscalYearName: "2026-27",
+              deptCode: "999",
+              status: "processed",
+              employeeCount: 4,
+              totalGross: 1000,
+              totalDeductions: 100,
+              totalNet: 900
+            }
+          ]
+        });
+      }
+
+      return Promise.resolve({ data: [] });
+    });
+  });
+
+  test("locks payroll processing to the current month and loads separate history", async () => {
+    render(<PayrollProcessPage />);
+
+    const currentMonth = String(new Date().getMonth() + 1);
+    const fiscalStartYear = new Date().getMonth() + 1 >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+    const fiscalEndYear = fiscalStartYear + 1;
+    const currentYear = String(Number(currentMonth) >= 7 ? fiscalStartYear : fiscalEndYear);
+
+    expect(await screen.findByLabelText("Current Payroll Month")).toHaveValue(
+      `${currentMonth} - ${new Date().toLocaleString("en-US", { month: "long" })}`
+    );
+    expect(screen.getByLabelText("Payment Year")).toHaveValue(currentYear);
+    expect(screen.queryByLabelText("Month")).not.toBeInTheDocument();
+    expect(screen.queryByText("Payroll Run History")).not.toBeInTheDocument();
+    expect(screen.getByText(/Previous payroll months are available/)).toBeVisible();
+
+    await waitFor(() => {
+      expect(apiMocks.getPayrollRuns).toHaveBeenCalledWith(expect.objectContaining({
+        month: currentMonth,
+        year: currentYear
+      }));
+    });
+  });
+
+  test("shows payroll history on its own page and searches previous months", async () => {
+    const user = userEvent.setup();
+    apiMocks.getPayrollRuns.mockResolvedValue({
+      data: [
+        {
+          id: 10,
+          paymentMonth: 8,
+          paymentYear: 2026,
+          fiscalYearName: "2026-27",
+          deptCode: "999",
+          status: "processed",
+          employeeCount: 4,
+          totalGross: 1000,
+          totalDeductions: 100,
+          totalNet: 900,
+          journalReferenceNo: "JV-0001"
+        },
+        {
+          id: 11,
+          paymentMonth: 7,
+          paymentYear: 2026,
+          fiscalYearName: "2026-27",
+          deptCode: "001",
+          status: "processed",
+          employeeCount: 2,
+          totalGross: 500,
+          totalDeductions: 50,
+          totalNet: 450,
+          journalReferenceNo: "JV-0002"
+        }
+      ]
+    });
+
+    render(<PayrollHistoryPage />);
+
+    expect(await screen.findByText("Payroll History")).toBeVisible();
+    expect(await screen.findByText("08/2026")).toBeVisible();
+    expect(screen.getByText("07/2026")).toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText("Month"), "7");
+
+    expect(screen.queryByText("08/2026")).not.toBeInTheDocument();
+    expect(screen.getByText("07/2026")).toBeVisible();
+    expect(apiMocks.getPayrollRuns).toHaveBeenCalledWith();
   });
 });
 

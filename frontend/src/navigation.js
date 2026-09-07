@@ -33,6 +33,7 @@ export const sidebarSections = [
         label: "Run Payroll",
         items: [
           "Payroll",
+          "Payroll History",
           "Budget Requirement"
         ]
       },

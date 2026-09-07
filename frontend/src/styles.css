@@ -434,6 +434,12 @@ h1 {
   flex: 1;
   overflow-y: auto;
   padding: 14px 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-group {
@@ -2810,6 +2816,11 @@ h1 {
 .wage-code-lookup-table tbody tr:focus-visible {
   background: #edf8f5;
   outline: 0;
+}
+
+.wage-code-lookup-table tbody tr.lookup-selected-row {
+  background: #e4f4ef;
+  box-shadow: inset 4px 0 0 #0b746b;
 }
 
 .wage-code-lookup-table td:first-child {

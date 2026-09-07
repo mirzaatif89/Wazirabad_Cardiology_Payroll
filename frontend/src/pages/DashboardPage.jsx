@@ -468,13 +468,42 @@ function getFiscalYearRangeFields(fiscalYear) {
 
 export function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onSelect }) {
   const [showHelp, setShowHelp] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const filteredRows = lookup ? filterEmployeeCodeLookupRows(lookup.rows, search) : [];
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [search, lookup]);
 
   if (!lookup) {
     return null;
   }
 
   const isBranchLookup = lookup.fieldName === "bankBranchCode";
-  const filteredRows = filterEmployeeCodeLookupRows(lookup.rows, search);
+  const activeRow = filteredRows[activeIndex] || filteredRows[0] || null;
+
+  const handleLookupKeyDown = (event) => {
+    if (!filteredRows.length) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.min(current + 1, filteredRows.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.max(current - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onSelect(activeRow);
+    }
+  };
 
   return (
     <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label={lookup.title}>
@@ -514,12 +543,7 @@ export function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onS
           type="search"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && filteredRows.length) {
-              event.preventDefault();
-              onSelect(filteredRows[0]);
-            }
-          }}
+          onKeyDown={handleLookupKeyDown}
           placeholder="Search code or description"
           autoFocus
         />
@@ -532,10 +556,12 @@ export function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onS
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
+              {filteredRows.map((row, index) => (
                 <tr
                   key={row.key}
+                  className={index === activeIndex ? "lookup-selected-row" : ""}
                   onClick={() => onSelect(row)}
+                  onMouseEnter={() => setActiveIndex(index)}
                   tabIndex={0}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
@@ -543,6 +569,7 @@ export function EmployeeCodeLookupModal({ lookup, search, onSearch, onClose, onS
                       onSelect(row);
                     }
                   }}
+                  onFocus={() => setActiveIndex(index)}
                 >
                   <td>{row.code}</td>
                   <td>{row.description || "-"}</td>
@@ -2442,6 +2469,7 @@ function LinkedBankBranchManagement({ banksRevision }) {
           </tbody>
         </table>
       </div>
+
     </section>
   );
 }
@@ -2710,7 +2738,7 @@ function deriveWageCategory(code) {
   return wageCategoryRanges.find((range) => numericCode >= range.min && numericCode <= range.max)?.category || "";
 }
 
-function WageCodeMaster() {
+export function WageCodeMaster() {
   const emptyWageForm = { code: "", description: "", attachedAccountCode: "" };
   const [wageCodes, setWageCodes] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -2718,6 +2746,8 @@ function WageCodeMaster() {
   const [editingCode, setEditingCode] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [accountLookupSearch, setAccountLookupSearch] = useState("");
+  const [showAccountLookup, setShowAccountLookup] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: "code", direction: "asc" });
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState({ type: "", message: "Loading wage codes..." });
@@ -2869,6 +2899,31 @@ function WageCodeMaster() {
     const compareResult = firstValue.localeCompare(secondValue, undefined, { numeric: true });
     return sortConfig.direction === "asc" ? compareResult : -compareResult;
   });
+  const accountLookup = showAccountLookup
+    ? {
+        fieldName: "attachedAccountCode",
+        eyebrow: "Account Code",
+        title: "Account Code Lookup",
+        emptyMessage: "No account code found.",
+        rows: accounts.map((account) => ({
+          key: `account-${account.code}`,
+          code: account.code,
+          description: account.name || account.designation || "-"
+        }))
+      }
+    : null;
+
+  const openAccountLookup = () => {
+    setAccountLookupSearch(form.attachedAccountCode || "");
+    setShowAccountLookup(true);
+  };
+
+  const selectAccountCode = (row) => {
+    setForm((current) => ({ ...current, attachedAccountCode: row.code }));
+    setErrors((current) => ({ ...current, attachedAccountCode: "" }));
+    setAccountLookupSearch("");
+    setShowAccountLookup(false);
+  };
 
   useEffect(() => {
     loadAccounts();
@@ -2941,16 +2996,14 @@ function WageCodeMaster() {
             type="text"
             value={form.attachedAccountCode}
             onChange={updateForm}
-            list="chart-account-options"
-            placeholder="Optional"
+            onKeyDown={(event) => {
+              if (event.key === "F1") {
+                event.preventDefault();
+                openAccountLookup();
+              }
+            }}
+            placeholder="Optional, press F1 to select"
           />
-          <datalist id="chart-account-options">
-            {accounts.map((account) => (
-              <option value={account.code} key={account.code}>
-                {account.name}
-              </option>
-            ))}
-          </datalist>
           {errors.attachedAccountCode ? <small>{errors.attachedAccountCode}</small> : null}
         </label>
 
@@ -3050,6 +3103,14 @@ function WageCodeMaster() {
           </tbody>
         </table>
       </div>
+
+      <EmployeeCodeLookupModal
+        lookup={accountLookup}
+        search={accountLookupSearch}
+        onSearch={setAccountLookupSearch}
+        onClose={() => setShowAccountLookup(false)}
+        onSelect={selectAccountCode}
+      />
     </section>
   );
 }
@@ -3304,6 +3365,7 @@ function FiscalYearManagement() {
           </tbody>
         </table>
       </div>
+
     </section>
   );
 }
@@ -4122,6 +4184,7 @@ function TaxSlabManagement() {
           </tbody>
         </table>
       </div>
+
     </section>
   );
 }
@@ -8572,6 +8635,20 @@ function payrollDefaultFilters(extra = {}) {
   };
 }
 
+function currentPayrollMonthValue() {
+  return String(new Date().getMonth() + 1);
+}
+
+function currentPayrollFilters(extra = {}, fiscalYear = null) {
+  const month = currentPayrollMonthValue();
+  return {
+    ...payrollDefaultFilters(),
+    ...extra,
+    month,
+    year: derivePayrollPaymentYear(month, fiscalYear)
+  };
+}
+
 function getPayrollFiscalYearRecord() {
   if (typeof window === "undefined") {
     return null;
@@ -9398,10 +9475,10 @@ function PayrollCalculationResults({ result, filters }) {
   );
 }
 
-function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFiscalYear = null }) {
-  const [filters, setFilters] = useState(payrollDefaultFilters());
+export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFiscalYear = null }) {
+  const [filters, setFilters] = useState(currentPayrollFilters());
   const [result, setResult] = useState(null);
-  const [runs, setRuns] = useState([]);
+  const [currentRuns, setCurrentRuns] = useState([]);
   const [draftRun, setDraftRun] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [fiscalYears, setFiscalYears] = useState([]);
@@ -9410,8 +9487,6 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   const [correctionDialog, setCorrectionDialog] = useState(null);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
-  const [loadingRunId, setLoadingRunId] = useState(null);
-  const [historyFilters, setHistoryFilters] = useState({ search: "", status: "all" });
   const [showPayrollGuide, setShowPayrollGuide] = useState(false);
   const fiscalYear = fiscalYears.find((record) => String(record.id) === String(selectedFiscalYearId))
     || activeFiscalYear
@@ -9419,41 +9494,11 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   const paymentYear = derivePayrollPaymentYear(filters.month, fiscalYear);
   const selectedDepartment = departments.find((department) => String(department.code) === String(filters.deptCode));
   const departmentOptions = [{ code: "999", department: "All Departments" }, ...departments];
-  const historyRows = runs.filter((run) => {
-    const search = historyFilters.search.trim().toLowerCase();
-    const statusFilter = String(historyFilters.status || "all").toLowerCase();
-    const statusMatch = statusFilter === "all" || String(run.status || "").toLowerCase() === statusFilter;
+  const lockedMonthName = payrollMonthOptions[Number(filters.month) - 1] || filters.month;
 
-    if (!statusMatch) {
-      return false;
-    }
-
-    if (!search) {
-      return true;
-    }
-
-    const haystack = [
-      run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
-      run.fiscalYearName,
-      run.deptCode,
-      run.status,
-      run.employeeCount,
-      run.totalGross,
-      run.totalDeductions,
-      run.totalNet,
-      run.journalReferenceNo,
-      run.reversalJournalReferenceNo
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return haystack.includes(search);
-  });
-
-  const loadRuns = async (nextFilters = filters) => {
+  const loadCurrentRuns = async (nextFilters = filters) => {
     const data = await getPayrollRuns(nextFilters);
-    setRuns(data.data || []);
+    setCurrentRuns(data.data || []);
     return data.data || [];
   };
 
@@ -9489,24 +9534,44 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
       const response = await getPayrollCurrentPeriod();
       if (response.data) {
         const currentDraft = response.data;
+        const draftFiscalYear = currentDraft.fiscalYearStartDate && currentDraft.fiscalYearEndDate
+          ? {
+              startDate: currentDraft.fiscalYearStartDate,
+              endDate: currentDraft.fiscalYearEndDate
+            }
+          : fiscalYear;
         const nextFilters = {
-          ...payrollDefaultFilters(),
-          month: String(currentDraft.paymentMonth),
-          year: String(currentDraft.paymentYear),
+          ...currentPayrollFilters({
+            deptCode: String(currentDraft.deptCode || "999")
+          }, draftFiscalYear),
+          month: currentPayrollMonthValue(),
+          year: derivePayrollPaymentYear(currentPayrollMonthValue(), draftFiscalYear),
           deptCode: String(currentDraft.deptCode || "999")
         };
-        setDraftRun(currentDraft);
+        const draftIsCurrentMonth =
+          String(currentDraft.paymentMonth) === String(nextFilters.month) &&
+          String(currentDraft.paymentYear) === String(nextFilters.year);
+        setDraftRun(draftIsCurrentMonth ? currentDraft : null);
         setFilters(nextFilters);
         if (currentDraft.fiscalYearId) {
           setSelectedFiscalYearId(String(currentDraft.fiscalYearId));
         }
-        await loadRuns(nextFilters);
-        setStatus({ type: "neutral", message: "Draft payroll period found. You can resume processing." });
+        await loadCurrentRuns(nextFilters);
+        setStatus({
+          type: "neutral",
+          message: draftIsCurrentMonth
+            ? "Current-month draft payroll found. You can resume processing."
+            : "Payroll processing is locked to the current month. Older runs are available in history."
+        });
       } else {
-        await loadRuns(filters);
+        const nextFilters = currentPayrollFilters({ deptCode: filters.deptCode }, fiscalYear);
+        setFilters(nextFilters);
+        await loadCurrentRuns(nextFilters);
       }
     } catch (error) {
-      await loadRuns(filters);
+      const nextFilters = currentPayrollFilters({ deptCode: filters.deptCode }, fiscalYear);
+      setFilters(nextFilters);
+      await loadCurrentRuns(nextFilters);
     }
   };
 
@@ -9518,7 +9583,8 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   useEffect(() => {
     setFilters((current) => ({
       ...current,
-      year: derivePayrollPaymentYear(current.month, fiscalYear)
+      month: currentPayrollMonthValue(),
+      year: derivePayrollPaymentYear(currentPayrollMonthValue(), fiscalYear)
     }));
   }, [fiscalYear, selectedFiscalYearId]);
 
@@ -9530,13 +9596,13 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     if (name === "fiscalYearId") {
       nextFiscalYearId = value;
       const nextFiscalYear = fiscalYears.find((record) => String(record.id) === String(value)) || null;
+      nextFilters.month = currentPayrollMonthValue();
       nextFilters.year = derivePayrollPaymentYear(nextFilters.month, nextFiscalYear);
       setSelectedFiscalYearId(value);
     } else {
       nextFilters[name] = value;
-      if (name === "month") {
-        nextFilters.year = derivePayrollPaymentYear(value, fiscalYear);
-      }
+      nextFilters.month = currentPayrollMonthValue();
+      nextFilters.year = derivePayrollPaymentYear(nextFilters.month, fiscalYear);
     }
 
     const periodChanged =
@@ -9560,9 +9626,9 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
 
       setResult(null);
       setConfirmDialog(null);
-      setRuns([]);
+      setCurrentRuns([]);
       setStatus({ type: "neutral", message: `Ready to start payroll for ${nextFilters.month}/${nextFilters.year}.` });
-      loadRuns(nextFilters).catch(() => setRuns([]));
+      loadCurrentRuns(nextFilters).catch(() => setCurrentRuns([]));
     }
   };
 
@@ -9594,7 +9660,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   };
 
   const resolveRunForCorrection = async (runId) => {
-    const historyMatch = runs.find((runItem) => String(runItem.id) === String(runId));
+    const historyMatch = currentRuns.find((runItem) => String(runItem.id) === String(runId));
     if (historyMatch) {
       return historyMatch;
     }
@@ -9629,7 +9695,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
         if (run.fiscalYearId) {
           setSelectedFiscalYearId(String(run.fiscalYearId));
         }
-        await loadRuns({
+        await loadCurrentRuns({
           month: String(run.paymentMonth),
           year: String(run.paymentYear),
           deptCode: String(run.deptCode || "999")
@@ -9641,7 +9707,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
       await voidPayrollRun(run.id);
       setResult(null);
       setDraftRun(null);
-      await loadRuns();
+      await loadCurrentRuns();
       await loadCurrentPeriod();
       setStatus({ type: "success", message: "Payroll run voided and reversal journal posted." });
     } catch (error) {
@@ -9691,14 +9757,14 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
       setResult(normalizePayrollRun(response.data));
       setStatus({ type: "success", message: response.message });
       setDraftRun(null);
-      await loadRuns();
+      await loadCurrentRuns();
     } catch (error) {
       if (error.status === 409 && error.data?.runId) {
         try {
           const runResponse = await getPayrollRun(error.data.runId);
           setResult(normalizePayrollRun(runResponse.data));
           setStatus({ type: "neutral", message: "Payroll already processed for this period. Existing result loaded." });
-          await loadRuns();
+          await loadCurrentRuns();
         } catch (loadError) {
           setStatus({ type: "error", message: loadError.message });
         }
@@ -9711,7 +9777,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   };
 
   const reopenCurrentRun = async () => {
-    const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
+    const runId = result?.runId || currentRuns.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
     if (!runId) return;
 
     try {
@@ -9723,7 +9789,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
   };
 
   const voidCurrentRun = async () => {
-    const runId = result?.runId || runs.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
+    const runId = result?.runId || currentRuns.find((runItem) => ["processed", "locked"].includes(runItem.status))?.id;
     if (!runId) return;
 
     try {
@@ -9734,39 +9800,8 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
     }
   };
 
-  const viewRunHistory = async (runId) => {
-    setLoadingRunId(runId);
-    try {
-      const response = await getPayrollRun(runId);
-      setResult(normalizePayrollRun(response.data));
-      setStatus({ type: "neutral", message: "Payroll run loaded from history." });
-    } catch (error) {
-      setStatus({ type: "error", message: error.message });
-    } finally {
-      setLoadingRunId(null);
-    }
-  };
-
-  const exportHistory = () => {
-    const rows = historyRows.map((run) => ({
-      Month: run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
-      "Fiscal Year": run.fiscalYearName || "",
-      Department: run.deptCode || "",
-      Status: run.status || "",
-      Employees: run.employeeCount || 0,
-      Gross: Number(run.totalGross || 0),
-      Deductions: Number(run.totalDeductions || 0),
-      Net: Number(run.totalNet || 0),
-      Journal: run.journalReferenceNo || "",
-      Reversal: run.reversalJournalReferenceNo || "",
-      "Processed At": run.processedAt || ""
-    }));
-
-    exportRowsToExcel(rows, `payroll-run-history-${filters.month || "all"}-${filters.year || "all"}.xlsx`);
-  };
-
   const goBack = () => {
-    setFilters(payrollDefaultFilters());
+    setFilters(currentPayrollFilters());
     setResult(null);
     setStatus({ type: "", message: "" });
     setDraftRun(null);
@@ -9783,10 +9818,18 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
       "Total Deductions": row.totalDeductions,
       "Net Pay": row.netPay
     }));
-    exportRowsToExcel(rows, `salary-calculation-${filters.month}-${paymentYear}.xlsx`);
+    exportRowsToExcel(rows, `salary-calculation-${result?.paymentMonth || filters.month}-${result?.paymentYear || paymentYear}.xlsx`);
   };
 
-  const hasProcessedRun = Boolean(result?.runId) || runs.some((runItem) => ["processed", "locked"].includes(runItem.status));
+  const hasProcessedRun = Boolean(result?.runId) || currentRuns.some((runItem) => ["processed", "locked"].includes(runItem.status));
+  const resultFilters = result
+    ? {
+        ...filters,
+        month: String(result.paymentMonth || filters.month),
+        year: String(result.paymentYear || paymentYear),
+        deptCode: String(result.deptCode || filters.deptCode || "999")
+      }
+    : filters;
 
   return (
     <section className="employee-entry-panel arrear-report-panel salary-calculation-panel">
@@ -9838,7 +9881,7 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
             <li><strong>Create master codes:</strong> Add departments, designations, banks, bank branches, accounts, and wage codes before adding salary records.</li>
             <li><strong>Add employee records:</strong> Save employee code, department, designation, BPS, bank code, branch code, account number, and active/inactive status.</li>
             <li><strong>Attach allowances/deductions:</strong> Use Pay Allowances Entry for employee wage-code amounts. Use Tax Slab Settings for income tax rules.</li>
-            <li><strong>Select payroll period:</strong> Choose fiscal year, payment month, and department. Use dept code 999 to process all departments.</li>
+            <li><strong>Current month only:</strong> Payroll processing is locked to the current month. Choose fiscal year and department only. Use dept code 999 to process all departments.</li>
             <li><strong>Start preview:</strong> Click Start. The system calculates gross pay, deductions, tax, advances, and net pay for eligible employees.</li>
             <li><strong>Post payroll:</strong> Review the preview. Click Post Payroll only when totals are correct. This saves the run and creates linked payroll records.</li>
             <li><strong>Print/export reports:</strong> Use Bank Summary, Non Bank Salary, Grand Bank Summary, Payment List, Pay Slips, and audit reports after posting.</li>
@@ -9859,12 +9902,12 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
           </select>
         </label>
         <label>
-          <span>Month</span>
-          <select name="month" value={filters.month} onChange={updateFilter}>
-            {payrollMonthOptions.map((monthName, index) => (
-              <option value={String(index + 1)} key={monthName}>{index + 1} - {monthName}</option>
-            ))}
-          </select>
+          <span>Current Payroll Month</span>
+          <input type="text" value={`${filters.month} - ${lockedMonthName}`} readOnly />
+        </label>
+        <label>
+          <span>Payment Year</span>
+          <input type="text" value={paymentYear} readOnly />
         </label>
         <label>
           <span>Dept Code</span>
@@ -9892,97 +9935,9 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
           <button type="button" onClick={voidCurrentRun}>Void / Delete</button>
         </div>
       ) : null}
-      <section className="employee-entry-panel payroll-history-panel no-print" aria-label="Payroll run history">
-        <div className="form-title-row">
-          <div>
-            <p>Payroll</p>
-            <h2>Payroll Run History</h2>
-          </div>
-          <div className="salary-run-actions">
-            <span>{historyRows.length} run{historyRows.length === 1 ? "" : "s"}</span>
-            <button type="button" onClick={exportHistory} disabled={!historyRows.length}>Export</button>
-          </div>
-        </div>
-        <div className="report-filter-panel no-print">
-          <label>
-            <span>Search</span>
-            <input
-              type="search"
-              placeholder="Month, fiscal year, dept, status, journal..."
-              value={historyFilters.search}
-              onChange={(event) => setHistoryFilters((current) => ({ ...current, search: event.target.value }))}
-            />
-          </label>
-          <label>
-            <span>Status</span>
-            <select
-              value={historyFilters.status}
-              onChange={(event) => setHistoryFilters((current) => ({ ...current, status: event.target.value }))}
-            >
-              <option value="all">All</option>
-              <option value="draft">Draft</option>
-              <option value="processed">Processed</option>
-              <option value="locked">Locked</option>
-              <option value="void">Void</option>
-            </select>
-          </label>
-        </div>
-        <div className="table-wrap">
-          <table className="employee-table payroll-history-table">
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th>Fiscal Year</th>
-                <th>Dept</th>
-                <th>Status</th>
-                <th>Employees</th>
-                <th>Gross</th>
-                <th>Deductions</th>
-                <th>Net</th>
-                <th>Journal</th>
-                <th>Reversal</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historyRows.map((run) => (
-                <tr key={run.id}>
-                  <td>{String(run.paymentMonth).padStart(2, "0")}/{run.paymentYear}</td>
-                  <td>{run.fiscalYearName || "-"}</td>
-                  <td>{run.deptCode}</td>
-                  <td>
-                    <span className="employee-status-pill neutral">{run.status}</span>
-                  </td>
-                  <td>{run.employeeCount || 0}</td>
-                  <td className="amount-cell">{formatCurrency(run.totalGross)}</td>
-                  <td className="amount-cell">{formatCurrency(run.totalDeductions)}</td>
-                  <td className="amount-cell">{formatCurrency(run.totalNet)}</td>
-                  <td>{run.journalReferenceNo || "-"}</td>
-                  <td>{run.reversalJournalReferenceNo || "-"}</td>
-                  <td>
-                    <div className="salary-run-actions">
-                      <button type="button" onClick={() => viewRunHistory(run.id)} disabled={loadingRunId === run.id}>
-                        {loadingRunId === run.id ? "Loading..." : "View"}
-                      </button>
-                      {["processed", "locked"].includes(String(run.status)) ? (
-                        <>
-                          <button type="button" onClick={() => openCorrectionDialog(run, "reprocess")}>Reprocess</button>
-                          <button type="button" onClick={() => openCorrectionDialog(run, "void")}>Void</button>
-                        </>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!historyRows.length ? (
-                <tr>
-                  <td colSpan="11">No payroll runs found.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <p className="form-status neutral no-print">
+        Previous payroll months are available from Payroll &gt; Run Payroll &gt; Payroll History.
+      </p>
       {correctionDialog ? (
         <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Payroll correction">
           <div className="confirm-modal salary-preview-modal payroll-correction-modal">
@@ -10020,7 +9975,241 @@ function PayrollProcessPage({ title = "Salary Calculation", onGoBack, activeFisc
           </div>
         </div>
       ) : null}
-      {result ? <PayrollCalculationResults result={result} filters={filters} /> : null}
+      {result ? <PayrollCalculationResults result={result} filters={resultFilters} /> : null}
+    </section>
+  );
+}
+
+export function PayrollHistoryPage() {
+  const [runs, setRuns] = useState([]);
+  const [selectedRun, setSelectedRun] = useState(null);
+  const [filters, setFilters] = useState({
+    search: "",
+    month: "",
+    year: "",
+    deptCode: "",
+    status: "all"
+  });
+  const [status, setStatus] = useState({ type: "", message: "Loading payroll history..." });
+  const [loading, setLoading] = useState(false);
+  const [loadingRunId, setLoadingRunId] = useState(null);
+
+  const updateFilter = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  const filteredRuns = runs.filter((run) => {
+    const statusFilter = String(filters.status || "all").toLowerCase();
+    const statusMatches = statusFilter === "all" || String(run.status || "").toLowerCase() === statusFilter;
+    const monthMatches = !filters.month || String(run.paymentMonth) === String(filters.month);
+    const yearMatches = !filters.year || String(run.paymentYear) === String(filters.year);
+    const deptMatches = !filters.deptCode || String(run.deptCode || "").toLowerCase().includes(filters.deptCode.trim().toLowerCase());
+    const search = filters.search.trim().toLowerCase();
+
+    if (!statusMatches || !monthMatches || !yearMatches || !deptMatches) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    const haystack = [
+      run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
+      run.fiscalYearName,
+      run.deptCode,
+      run.status,
+      run.employeeCount,
+      run.totalGross,
+      run.totalDeductions,
+      run.totalNet,
+      run.journalReferenceNo,
+      run.reversalJournalReferenceNo,
+      run.processedAt
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(search);
+  });
+
+  const yearOptions = Array.from(new Set(runs.map((run) => run.paymentYear).filter(Boolean)))
+    .sort((first, second) => Number(second) - Number(first));
+
+  const loadHistory = async () => {
+    setLoading(true);
+    setStatus({ type: "", message: "Loading payroll history..." });
+
+    try {
+      const response = await getPayrollRuns();
+      const records = response.data || [];
+      setRuns(records);
+      setStatus({
+        type: records.length ? "success" : "neutral",
+        message: records.length ? `${records.length} payroll run(s) loaded.` : "No payroll history found."
+      });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const viewHistoryRun = async (runId) => {
+    setLoadingRunId(runId);
+
+    try {
+      const response = await getPayrollRun(runId);
+      setSelectedRun(normalizePayrollRun(response.data));
+      setStatus({ type: "neutral", message: "Historical payroll run loaded." });
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoadingRunId(null);
+    }
+  };
+
+  const exportHistory = () => {
+    const rows = filteredRuns.map((run) => ({
+      Month: run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
+      "Fiscal Year": run.fiscalYearName || "",
+      Department: run.deptCode || "",
+      Status: run.status || "",
+      Employees: run.employeeCount || 0,
+      Gross: Number(run.totalGross || 0),
+      Deductions: Number(run.totalDeductions || 0),
+      Net: Number(run.totalNet || 0),
+      Journal: run.journalReferenceNo || "",
+      Reversal: run.reversalJournalReferenceNo || "",
+      "Processed At": run.processedAt || ""
+    }));
+
+    exportRowsToExcel(rows, `payroll-history-${filters.month || "all"}-${filters.year || "all"}.xlsx`);
+  };
+
+  const selectedRunFilters = selectedRun
+    ? {
+        month: String(selectedRun.paymentMonth || ""),
+        year: String(selectedRun.paymentYear || ""),
+        deptCode: String(selectedRun.deptCode || "999")
+      }
+    : null;
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  return (
+    <section className="employee-entry-panel arrear-report-panel payroll-history-panel" aria-label="Payroll history">
+      <div className="form-title-row">
+        <div>
+          <p>Payroll</p>
+          <h2>Payroll History</h2>
+          <span>Search and view payroll runs from previous months.</span>
+        </div>
+        <div className="salary-run-actions no-print">
+          <span>{filteredRuns.length} of {runs.length} run{runs.length === 1 ? "" : "s"}</span>
+          <button type="button" onClick={loadHistory} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button>
+          <button type="button" onClick={exportHistory} disabled={!filteredRuns.length}>Export</button>
+        </div>
+      </div>
+
+      <div className="report-filter-panel no-print">
+        <label>
+          <span>Search History</span>
+          <input
+            type="search"
+            name="search"
+            placeholder="Search month, fiscal year, dept, status, journal..."
+            value={filters.search}
+            onChange={updateFilter}
+          />
+        </label>
+        <label>
+          <span>Month</span>
+          <select name="month" value={filters.month} onChange={updateFilter}>
+            <option value="">All Months</option>
+            {payrollMonthOptions.map((monthName, index) => (
+              <option value={String(index + 1)} key={monthName}>{index + 1} - {monthName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Year</span>
+          <select name="year" value={filters.year} onChange={updateFilter}>
+            <option value="">All Years</option>
+            {yearOptions.map((year) => (
+              <option value={String(year)} key={year}>{year}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Dept</span>
+          <input name="deptCode" type="search" value={filters.deptCode} onChange={updateFilter} placeholder="999, 001..." />
+        </label>
+        <label>
+          <span>Status</span>
+          <select name="status" value={filters.status} onChange={updateFilter}>
+            <option value="all">All</option>
+            <option value="draft">Draft</option>
+            <option value="processed">Processed</option>
+            <option value="locked">Locked</option>
+            <option value="void">Void</option>
+          </select>
+        </label>
+      </div>
+
+      {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
+
+      <div className="table-wrap">
+        <table className="employee-table payroll-history-table">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Fiscal Year</th>
+              <th>Dept</th>
+              <th>Status</th>
+              <th>Employees</th>
+              <th>Gross</th>
+              <th>Deductions</th>
+              <th>Net</th>
+              <th>Journal</th>
+              <th>Reversal</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRuns.map((run) => (
+              <tr key={run.id} className={String(selectedRun?.runId || selectedRun?.id || "") === String(run.id) ? "selected-row" : ""}>
+                <td>{String(run.paymentMonth).padStart(2, "0")}/{run.paymentYear}</td>
+                <td>{run.fiscalYearName || "-"}</td>
+                <td>{run.deptCode}</td>
+                <td><span className="employee-status-pill neutral">{run.status}</span></td>
+                <td>{run.employeeCount || 0}</td>
+                <td className="amount-cell">{formatCurrency(run.totalGross)}</td>
+                <td className="amount-cell">{formatCurrency(run.totalDeductions)}</td>
+                <td className="amount-cell">{formatCurrency(run.totalNet)}</td>
+                <td>{run.journalReferenceNo || "-"}</td>
+                <td>{run.reversalJournalReferenceNo || "-"}</td>
+                <td>
+                  <button type="button" onClick={() => viewHistoryRun(run.id)} disabled={loadingRunId === run.id}>
+                    {loadingRunId === run.id ? "Loading..." : "View"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!filteredRuns.length ? (
+              <tr>
+                <td colSpan="11">No payroll history found for the selected filters.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedRun ? <PayrollCalculationResults result={selectedRun} filters={selectedRunFilters} /> : null}
     </section>
   );
 }
@@ -11491,6 +11680,8 @@ export default function DashboardPage({ user, onLogout, initialPage = "Dashboard
           <ScaleAuditProofPrintingPage />
         ) : activeItem === "Payroll" ? (
           <PayrollProcessPage title="Payroll" activeFiscalYear={currentFiscalYear} />
+        ) : activeItem === "Payroll History" ? (
+          <PayrollHistoryPage />
         ) : activeItem === "Salary Calculation" ? (
           <PayrollProcessPage title="Salary Calculation" onGoBack={() => navigateToPage("M.Process")} activeFiscalYear={currentFiscalYear} />
         ) : activeItem === "New Percent Allowance Creation" ? (
