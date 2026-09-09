@@ -13,6 +13,15 @@ describe("Payroll navigation", () => {
     expect(getPageFromLocation("/month-difference.html")).toBe("Month Difference");
   });
 
+  test("maps Payroll History to its standalone page URL", () => {
+    const payroll = sidebarSections.find((section) => section.title === "Payroll");
+    const runPayroll = payroll.items.find((group) => group.label === "Run Payroll");
+
+    expect(runPayroll.items).toContain("Payroll History");
+    expect(getPageSlug("Payroll History")).toBe("payroll-history");
+    expect(getPageFromLocation("/payroll-history.html")).toBe("Payroll History");
+  });
+
   test("uses one combined Banks & Branches management page", () => {
     const management = sidebarSections.find((section) => section.title === "Management");
     const banks = management.items.find((group) => group.label === "Banks");

@@ -141,7 +141,17 @@ export async function getBanks() {
       COUNT(DISTINCT branch.id) AS branchCount,
       COUNT(DISTINCT employee.id) AS employeeCount
     FROM bank_codes bank
-    LEFT JOIN bank_branch_codes branch ON branch.bank_id = bank.id
+    LEFT JOIN bank_branch_codes branch
+      ON branch.bank_id = bank.id
+      OR (
+        branch.bank_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM employees branch_employee
+          WHERE branch_employee.bank_code = bank.code
+            AND branch_employee.bank_branch_code = branch.code
+        )
+      )
     LEFT JOIN employees employee ON employee.bank_code = bank.code
     GROUP BY bank.id, bank.code, bank.bank, bank.is_active, bank.created_at
     ORDER BY bank.bank ASC, bank.code ASC

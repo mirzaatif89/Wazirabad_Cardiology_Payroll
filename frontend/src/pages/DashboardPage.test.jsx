@@ -27,6 +27,7 @@ import {
   MonthDifferencePage,
   PayslipView,
   PayrollHistoryPage,
+  PayrollFilter,
   PayrollProcessPage,
   WageCodeMaster,
   formatServiceLength,
@@ -240,6 +241,45 @@ describe("Payroll processing current month and history", () => {
     expect(screen.queryByText("08/2026")).not.toBeInTheDocument();
     expect(screen.getByText("07/2026")).toBeVisible();
     expect(apiMocks.getPayrollRuns).toHaveBeenCalledWith();
+  });
+});
+
+describe("Payroll report filter", () => {
+  test("passes saved filters to OK handler instead of the click event", async () => {
+    const user = userEvent.setup();
+    const onRun = vi.fn();
+
+    function FilterHarness() {
+      const [filters, setFilters] = React.useState({
+        deptCode: "999",
+        gazNg: "A",
+        reportFor: "All",
+        month: "9",
+        year: "2026",
+        outputSelection: "screen"
+      });
+
+      return (
+        <PayrollFilter
+          title="Scale Audit Register"
+          filters={filters}
+          setFilters={setFilters}
+          onRun={() => onRun(filters)}
+          onCancel={() => {}}
+          loading={false}
+          simple
+        />
+      );
+    }
+
+    render(<FilterHarness />);
+    await user.click(screen.getByRole("button", { name: "OK" }));
+
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({
+      month: "9",
+      year: "2026",
+      reportFor: "All"
+    }));
   });
 });
 

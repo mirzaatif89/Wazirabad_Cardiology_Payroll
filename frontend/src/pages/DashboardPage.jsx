@@ -8671,7 +8671,7 @@ function derivePayrollPaymentYear(monthValue, fiscalYear) {
   return String(month >= fiscalStartMonth ? startYear : endYear);
 }
 
-function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, allowExcel = false, simple = false }) {
+export function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, allowExcel = false, simple = false }) {
   const update = (event) => {
     const { name, value } = event.target;
     setFilters((current) => ({ ...current, [name]: value }));
@@ -8696,7 +8696,7 @@ function PayrollFilter({ title, filters, setFilters, onRun, onCancel, loading, a
           <label><input type="radio" name="outputSelection" value="printer" checked={filters.outputSelection === "printer"} onChange={update} /> Print</label>
           <label><input type="radio" name="outputSelection" value="excel" checked={filters.outputSelection === "excel"} onChange={update} /> Save as Excel</label>
         </fieldset>
-        <div className="report-filter-actions"><button type="button" onClick={onRun} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={onCancel}>Cancel</button></div>
+        <div className="report-filter-actions"><button type="button" onClick={() => onRun()} disabled={loading}>{loading ? "Loading..." : "OK"}</button><button type="button" onClick={onCancel}>Cancel</button></div>
       </div>
     </>
   );
