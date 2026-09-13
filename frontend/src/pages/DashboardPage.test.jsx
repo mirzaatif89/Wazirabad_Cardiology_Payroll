@@ -13,7 +13,9 @@ const apiMocks = vi.hoisted(() => ({
   getFiscalYears: vi.fn(),
   getPayrollCurrentPeriod: vi.fn(),
   getPayrollMonthDifference: vi.fn(),
-  getPayrollRuns: vi.fn()
+  getPayrollRuns: vi.fn(),
+  previewPayroll: vi.fn(),
+  processPayroll: vi.fn()
 }));
 
 vi.mock("../services/api.js", async () => {
@@ -138,7 +140,10 @@ describe("Payroll processing current month and history", () => {
     const today = new Date();
     const fiscalStartYear = today.getMonth() + 1 >= 7 ? today.getFullYear() : today.getFullYear() - 1;
     const fiscalEndYear = fiscalStartYear + 1;
-    apiMocks.getDepartments.mockResolvedValue([{ code: "999", department: "All Departments" }]);
+    apiMocks.getDepartments.mockResolvedValue([
+      { code: "001", department: "General" },
+      { code: "999", department: "All Departments" }
+    ]);
     apiMocks.getFiscalYears.mockResolvedValue([
       {
         id: 1,
@@ -149,6 +154,20 @@ describe("Payroll processing current month and history", () => {
       }
     ]);
     apiMocks.getPayrollCurrentPeriod.mockResolvedValue({ data: null });
+    apiMocks.getEmployees.mockResolvedValue([
+      { employeeNo: "03", name: "Maria Sana", departmentCode: "001", department: "General", status: "active" },
+      { employeeNo: "04", name: "Ali Khan", departmentCode: "002", department: "Admin", status: "active" }
+    ]);
+    apiMocks.previewPayroll.mockResolvedValue({
+      data: {
+        paymentMonth: new Date().getMonth() + 1,
+        paymentYear: new Date().getFullYear(),
+        deptCode: "001",
+        payrollType: "regular",
+        employees: [],
+        totals: { grossPay: 0, totalDeductions: 0, netPay: 0 }
+      }
+    });
     apiMocks.getPayrollRuns.mockImplementation((filters) => {
       if (!filters || !Object.keys(filters).length) {
         return Promise.resolve({
@@ -173,18 +192,25 @@ describe("Payroll processing current month and history", () => {
     });
   });
 
-  test("locks payroll processing to the current month and loads separate history", async () => {
+  test("offers current month plus two upcoming months for payroll processing", async () => {
     render(<PayrollProcessPage />);
 
-    const currentMonth = String(new Date().getMonth() + 1);
-    const fiscalStartYear = new Date().getMonth() + 1 >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+    const today = new Date();
+    const currentMonth = String(today.getMonth() + 1);
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const secondNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+    const fiscalStartYear = today.getMonth() + 1 >= 7 ? today.getFullYear() : today.getFullYear() - 1;
     const fiscalEndYear = fiscalStartYear + 1;
     const currentYear = String(Number(currentMonth) >= 7 ? fiscalStartYear : fiscalEndYear);
 
-    expect(await screen.findByLabelText("Current Payroll Month")).toHaveValue(
-      `${currentMonth} - ${new Date().toLocaleString("en-US", { month: "long" })}`
-    );
-    expect(screen.getByLabelText("Payment Year")).toHaveValue(currentYear);
+    const periodSelect = await screen.findByLabelText("Payroll Period");
+    const periodOptions = within(periodSelect).getAllByRole("option").map((option) => option.textContent);
+
+    expect(periodSelect).toHaveValue(`${currentMonth}-${currentYear}`);
+    expect(periodOptions).toHaveLength(3);
+    expect(periodOptions[0]).toMatch(new RegExp(`Current Month - ${today.toLocaleString("en-US", { month: "long" })}`));
+    expect(periodOptions[1]).toMatch(new RegExp(`Upcoming Month 1 - ${nextMonth.toLocaleString("en-US", { month: "long" })}`));
+    expect(periodOptions[2]).toMatch(new RegExp(`Upcoming Month 2 - ${secondNextMonth.toLocaleString("en-US", { month: "long" })}`));
     expect(screen.queryByLabelText("Month")).not.toBeInTheDocument();
     expect(screen.queryByText("Payroll Run History")).not.toBeInTheDocument();
     expect(screen.getByText(/Previous payroll months are available/)).toBeVisible();
@@ -193,6 +219,41 @@ describe("Payroll processing current month and history", () => {
       expect(apiMocks.getPayrollRuns).toHaveBeenCalledWith(expect.objectContaining({
         month: currentMonth,
         year: currentYear
+      }));
+    });
+  });
+
+  test("runs payroll preview department-wise for the selected department", async () => {
+    const user = userEvent.setup();
+    render(<PayrollProcessPage />);
+
+    await user.selectOptions(await screen.findByLabelText("Dept Code"), "001");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => {
+      expect(apiMocks.previewPayroll).toHaveBeenCalledWith(expect.objectContaining({
+        deptCode: "001",
+        payrollType: "regular"
+      }));
+    });
+  });
+
+  test("previews supplementary payroll for selected employees only", async () => {
+    const user = userEvent.setup();
+    render(<PayrollProcessPage />);
+
+    await user.selectOptions(await screen.findByLabelText("Payroll Type"), "supplementary");
+    await user.selectOptions(screen.getByLabelText("Dept Code"), "001");
+    await user.selectOptions(screen.getByLabelText("Reason"), "Missed Employee");
+    await user.click(await screen.findByLabelText("Select 03 Maria Sana"));
+    await user.click(screen.getByRole("button", { name: "Start Supplementary" }));
+
+    await waitFor(() => {
+      expect(apiMocks.previewPayroll).toHaveBeenCalledWith(expect.objectContaining({
+        deptCode: "001",
+        payrollType: "supplementary",
+        supplementaryReason: "Missed Employee",
+        employeeCodes: ["03"]
       }));
     });
   });
@@ -220,6 +281,8 @@ describe("Payroll processing current month and history", () => {
           paymentYear: 2026,
           fiscalYearName: "2026-27",
           deptCode: "001",
+          payrollType: "supplementary",
+          supplementaryReason: "Missed Employee",
           status: "processed",
           employeeCount: 2,
           totalGross: 500,
@@ -240,6 +303,8 @@ describe("Payroll processing current month and history", () => {
 
     expect(screen.queryByText("08/2026")).not.toBeInTheDocument();
     expect(screen.getByText("07/2026")).toBeVisible();
+    expect(screen.getByText("supplementary")).toBeVisible();
+    expect(screen.getByText("Missed Employee")).toBeVisible();
     expect(apiMocks.getPayrollRuns).toHaveBeenCalledWith();
   });
 });

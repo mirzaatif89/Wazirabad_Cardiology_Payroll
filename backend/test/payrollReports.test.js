@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
-import { after, test } from "node:test";
+import { after, before, test } from "node:test";
 import { pool } from "../src/config/database.js";
 import {
   buildPayrollMonthDifference,
+  ensurePayrollTables,
+  getAllowedPayrollProcessingPeriods,
   getPayrollMonthDifference,
   getPayslips,
-  getSinglePayslip
+  normalizeEmployeeCodes,
+  normalizePayrollType,
+  isPayrollProcessingPeriodAllowed,
+  getSinglePayslip,
+  validateSupplementaryPayrollInput
 } from "../src/models/payrollModel.js";
+
+before(async () => {
+  await ensurePayrollTables();
+});
 
 after(async () => {
   await pool.end();
@@ -34,6 +44,43 @@ test("month comparison handles changed, added, removed, and unchanged employees"
   assert.equal(result.totals.previousNet, 215);
   assert.equal(result.totals.currentNet, 220);
   assert.equal(result.totals.netDifference, 5);
+});
+
+test("payroll processing is allowed for current month and next two months only", () => {
+  const referenceDate = new Date(2026, 8, 13);
+
+  assert.deepEqual(getAllowedPayrollProcessingPeriods(referenceDate), [
+    { month: 9, year: 2026 },
+    { month: 10, year: 2026 },
+    { month: 11, year: 2026 }
+  ]);
+  assert.equal(isPayrollProcessingPeriodAllowed(9, 2026, referenceDate), true);
+  assert.equal(isPayrollProcessingPeriodAllowed(10, 2026, referenceDate), true);
+  assert.equal(isPayrollProcessingPeriodAllowed(11, 2026, referenceDate), true);
+  assert.equal(isPayrollProcessingPeriodAllowed(8, 2026, referenceDate), false);
+  assert.equal(isPayrollProcessingPeriodAllowed(12, 2026, referenceDate), false);
+});
+
+test("supplementary payroll requires selected employees and a reason", () => {
+  assert.equal(normalizePayrollType("SUPPLEMENTARY"), "supplementary");
+  assert.equal(normalizePayrollType("regular"), "regular");
+  assert.deepEqual(normalizeEmployeeCodes([" 01 ", "01", "03"]), ["01", "03"]);
+  assert.deepEqual(normalizeEmployeeCodes("01, 02,,03"), ["01", "02", "03"]);
+
+  assert.throws(
+    () => validateSupplementaryPayrollInput({ payrollType: "supplementary", employeeCodes: ["01"], supplementaryReason: "" }),
+    /requires a reason/
+  );
+  assert.throws(
+    () => validateSupplementaryPayrollInput({ payrollType: "supplementary", employeeCodes: [], supplementaryReason: "Missed Employee" }),
+    /requires at least one selected employee/
+  );
+  assert.doesNotThrow(() => validateSupplementaryPayrollInput({
+    payrollType: "supplementary",
+    employeeCodes: ["01"],
+    supplementaryReason: "Missed Employee"
+  }));
+  assert.doesNotThrow(() => validateSupplementaryPayrollInput({ payrollType: "regular" }));
 });
 
 test("payslip model returns and reconciles a posted payroll snapshot", async (t) => {

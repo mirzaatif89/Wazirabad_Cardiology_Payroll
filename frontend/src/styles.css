@@ -3416,7 +3416,7 @@ h1 {
 
 .salary-period-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.75fr) minmax(180px, 0.85fr) auto;
+  grid-template-columns: repeat(5, minmax(150px, 1fr)) auto;
   gap: 12px;
   align-items: end;
   padding: 14px;
@@ -3456,6 +3456,93 @@ h1 {
 
 .salary-period-form .report-filter-actions {
   flex-wrap: nowrap;
+}
+
+.supplementary-payroll-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #cde3df;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f9fcfb 0%, #eef8f5 100%);
+}
+
+.supplementary-payroll-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.supplementary-payroll-head p {
+  margin: 0 0 4px;
+  color: #607478;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.supplementary-payroll-head h3 {
+  margin: 0 0 4px;
+  color: #17383c;
+}
+
+.supplementary-payroll-head span {
+  color: #52676b;
+}
+
+.supplementary-payroll-head strong {
+  white-space: nowrap;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #07655d;
+  background: #dff4ef;
+}
+
+.supplementary-payroll-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr) minmax(260px, 1.25fr);
+  gap: 12px;
+}
+
+.supplementary-payroll-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.supplementary-payroll-form span {
+  color: #31474c;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.supplementary-payroll-form input,
+.supplementary-payroll-form select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #c6d8d6;
+  border-radius: 8px;
+  color: #1f3034;
+  background: #ffffff;
+  outline: 0;
+}
+
+.supplementary-employee-wrap {
+  max-height: 280px;
+}
+
+.supplementary-employee-table th:first-child,
+.supplementary-employee-table td:first-child {
+  width: 80px;
+  text-align: center;
+}
+
+.supplementary-employee-table input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0b746b;
 }
 
 .salary-run-actions {
@@ -4648,6 +4735,7 @@ h1 {
   .arrear-filter-toolbar,
   .budget-filter-toolbar,
   .salary-period-form,
+  .supplementary-payroll-form,
   .mprocess-form,
   .fixed-allowance-form,
   .annual-increment-form,

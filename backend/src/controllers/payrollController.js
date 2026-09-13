@@ -25,7 +25,11 @@ function filters(req) {
     gazNg: req.query.gaz_ng || req.body?.gaz_ng || "A",
     reportFor: req.query.report_for || req.body?.report_for || "All",
     month: Number(req.query.month || req.body?.payment_month || req.body?.month || 0),
-    year: Number(req.query.year || req.body?.payment_year || req.body?.year || 0)
+    year: Number(req.query.year || req.body?.payment_year || req.body?.year || 0),
+    payrollType: req.query.payroll_type || req.body?.payroll_type || "regular",
+    supplementaryReason: req.query.supplementary_reason || req.body?.supplementary_reason || "",
+    supplementaryNote: req.query.supplementary_note || req.body?.supplementary_note || "",
+    employeeCodes: req.body?.employee_codes || req.body?.employeeCodes || req.query.employee_codes || []
   };
 }
 
@@ -48,6 +52,10 @@ export async function processPayrollRun(req, res) {
       deptCode: filter.deptCode,
       gazNg: filter.gazNg,
       reportFor: filter.reportFor,
+      payrollType: filter.payrollType,
+      supplementaryReason: filter.supplementaryReason,
+      supplementaryNote: filter.supplementaryNote,
+      employeeCodes: filter.employeeCodes,
       processedBy: req.body?.processed_by || "Hospital Admin"
     });
     if (result.status === "already_processed") {
@@ -55,6 +63,9 @@ export async function processPayrollRun(req, res) {
     }
     return res.json({ success: true, data: result, message: "Payroll processed successfully." });
   } catch (error) {
+    if (["PAYROLL_PERIOD_NOT_ALLOWED", "SUPPLEMENTARY_PAYROLL_INVALID"].includes(error.code)) {
+      return res.status(400).json({ success: false, data: null, message: error.message });
+    }
     console.error("Payroll processing failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Payroll processing failed." });
   }
@@ -70,10 +81,17 @@ export async function previewPayrollRun(req, res) {
       paymentYear: filter.year,
       deptCode: filter.deptCode,
       gazNg: filter.gazNg,
-      reportFor: filter.reportFor
+      reportFor: filter.reportFor,
+      payrollType: filter.payrollType,
+      supplementaryReason: filter.supplementaryReason,
+      supplementaryNote: filter.supplementaryNote,
+      employeeCodes: filter.employeeCodes
     });
     return res.json({ success: true, data: result, message: "Payroll preview loaded." });
   } catch (error) {
+    if (["PAYROLL_PERIOD_NOT_ALLOWED", "SUPPLEMENTARY_PAYROLL_INVALID"].includes(error.code)) {
+      return res.status(400).json({ success: false, data: null, message: error.message });
+    }
     console.error("Payroll preview failed:", error);
     return res.status(500).json({ success: false, data: null, message: "Payroll preview failed." });
   }
@@ -101,7 +119,12 @@ export async function employeeCount(req, res) {
 
 export async function listPayrollRuns(req, res) {
   try {
-    const rows = await getPayrollRuns({ month: req.query.month || "", year: req.query.year || "", deptCode: req.query.dept_code || "" });
+    const rows = await getPayrollRuns({
+      month: req.query.month || "",
+      year: req.query.year || "",
+      deptCode: req.query.dept_code || "",
+      payrollType: req.query.payroll_type || ""
+    });
     return res.json({ success: true, data: rows, message: "Payroll runs loaded." });
   } catch (error) {
     console.error("Payroll runs failed:", error);

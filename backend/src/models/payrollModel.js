@@ -17,27 +17,83 @@ function isTaxWageCode(wageCode) {
   return String(wageCode || "").trim().toUpperCase() === INCOME_TAX_WAGE_CODE.toUpperCase();
 }
 
+export function normalizePayrollType(value = "regular") {
+  return String(value || "regular").trim().toLowerCase() === "supplementary" ? "supplementary" : "regular";
+}
+
+export function normalizeEmployeeCodes(codes = []) {
+  const rawCodes = Array.isArray(codes) ? codes : String(codes || "").split(",");
+  return Array.from(new Set(rawCodes.map((code) => String(code || "").trim()).filter(Boolean)));
+}
+
+export function validateSupplementaryPayrollInput({ payrollType = "regular", employeeCodes = [], supplementaryReason = "" } = {}) {
+  if (normalizePayrollType(payrollType) !== "supplementary") {
+    return;
+  }
+
+  if (!String(supplementaryReason || "").trim()) {
+    const error = new Error("Supplementary payroll requires a reason.");
+    error.code = "SUPPLEMENTARY_PAYROLL_INVALID";
+    throw error;
+  }
+
+  if (!normalizeEmployeeCodes(employeeCodes).length) {
+    const error = new Error("Supplementary payroll requires at least one selected employee.");
+    error.code = "SUPPLEMENTARY_PAYROLL_INVALID";
+    throw error;
+  }
+}
+
 export async function ensurePayrollTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS payroll_runs (
       id INT AUTO_INCREMENT PRIMARY KEY,
       fiscal_year_id INT NULL,
+      payroll_type ENUM('regular','supplementary') NOT NULL DEFAULT 'regular',
       payment_month INT NOT NULL,
       payment_year INT NOT NULL,
       dept_code VARCHAR(50) NOT NULL DEFAULT '999',
+      supplementary_reason VARCHAR(100) NULL,
+      supplementary_note TEXT NULL,
       status ENUM('draft','processed','locked','void') DEFAULT 'draft',
       processed_at TIMESTAMP NULL,
       processed_by VARCHAR(100),
       CONSTRAINT fk_payroll_runs_fiscal_year
         FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id)
-        ON DELETE SET NULL,
-      UNIQUE KEY uniq_run (payment_month, payment_year, dept_code)
+        ON DELETE SET NULL
     )
   `);
 
   const [fiscalYearColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'fiscal_year_id'");
   if (!fiscalYearColumns.length) {
     await pool.query("ALTER TABLE payroll_runs ADD COLUMN fiscal_year_id INT NULL AFTER id");
+  }
+
+  const [payrollTypeColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'payroll_type'");
+  if (!payrollTypeColumns.length) {
+    await pool.query("ALTER TABLE payroll_runs ADD COLUMN payroll_type ENUM('regular','supplementary') NOT NULL DEFAULT 'regular' AFTER fiscal_year_id");
+  }
+
+  const [supplementaryReasonColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'supplementary_reason'");
+  if (!supplementaryReasonColumns.length) {
+    await pool.query("ALTER TABLE payroll_runs ADD COLUMN supplementary_reason VARCHAR(100) NULL AFTER dept_code");
+  }
+
+  const [supplementaryNoteColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'supplementary_note'");
+  if (!supplementaryNoteColumns.length) {
+    await pool.query("ALTER TABLE payroll_runs ADD COLUMN supplementary_note TEXT NULL AFTER supplementary_reason");
+  }
+
+  const [legacyRunUnique] = await pool.query(`
+    SELECT INDEX_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'payroll_runs'
+      AND INDEX_NAME = 'uniq_run'
+    LIMIT 1
+  `);
+  if (legacyRunUnique.length) {
+    await pool.query("ALTER TABLE payroll_runs DROP INDEX uniq_run");
   }
 
   const [statusColumns] = await pool.query("SHOW COLUMNS FROM payroll_runs LIKE 'status'");
@@ -230,6 +286,10 @@ function employeeWhere({ deptCode = "999", gazNg = "A", reportFor = "All" } = {}
 async function getEmployeesForPayroll(connection, filters = {}) {
   const { where, params } = employeeWhere(filters);
   const activeOnDate = filters.activeOnDate || new Date().toISOString().slice(0, 10);
+  const employeeCodes = normalizeEmployeeCodes(filters.employeeCodes);
+  const employeeCodeWhere = employeeCodes.length
+    ? `AND e.employee_no IN (${employeeCodes.map(() => "?").join(", ")})`
+    : "";
   const [rows] = await connection.query(
     `
       SELECT
@@ -249,9 +309,10 @@ async function getEmployeesForPayroll(connection, filters = {}) {
       WHERE ${where}
         AND COALESCE(e.status, 'active') = 'active'
         AND (e.stop_date IS NULL OR e.stop_date > ?)
+        ${employeeCodeWhere}
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no
     `,
-    [...params, activeOnDate]
+    [...params, activeOnDate, ...employeeCodes]
   );
   return rows;
 }
@@ -716,23 +777,79 @@ function summarizeTaxSlab(slab) {
   };
 }
 
-export async function previewPayroll({ paymentMonth, paymentYear, deptCode = "999", gazNg = "A", reportFor = "All" }) {
+export function getAllowedPayrollProcessingPeriods(referenceDate = new Date()) {
+  return [0, 1, 2].map((offset) => {
+    const periodDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + offset, 1);
+    return {
+      month: periodDate.getMonth() + 1,
+      year: periodDate.getFullYear()
+    };
+  });
+}
+
+export function isPayrollProcessingPeriodAllowed(paymentMonth, paymentYear, referenceDate = new Date()) {
+  return getAllowedPayrollProcessingPeriods(referenceDate).some(
+    (period) => Number(period.month) === Number(paymentMonth) && Number(period.year) === Number(paymentYear)
+  );
+}
+
+function requireAllowedPayrollProcessingPeriod(paymentMonth, paymentYear) {
+  if (!isPayrollProcessingPeriodAllowed(paymentMonth, paymentYear)) {
+    const allowedLabels = getAllowedPayrollProcessingPeriods()
+      .map((period) => `${String(period.month).padStart(2, "0")}/${period.year}`)
+      .join(", ");
+    const error = new Error(`Payroll can only be processed for current month and next two upcoming months: ${allowedLabels}.`);
+    error.code = "PAYROLL_PERIOD_NOT_ALLOWED";
+    throw error;
+  }
+}
+
+export async function previewPayroll({
+  paymentMonth,
+  paymentYear,
+  deptCode = "999",
+  gazNg = "A",
+  reportFor = "All",
+  payrollType = "regular",
+  supplementaryReason = "",
+  supplementaryNote = "",
+  employeeCodes = []
+}) {
+  const resolvedPayrollType = normalizePayrollType(payrollType);
+  const selectedEmployeeCodes = normalizeEmployeeCodes(employeeCodes);
+  validateSupplementaryPayrollInput({
+    payrollType: resolvedPayrollType,
+    employeeCodes: selectedEmployeeCodes,
+    supplementaryReason
+  });
+  requireAllowedPayrollProcessingPeriod(paymentMonth, paymentYear);
   const connection = pool;
   const validDate = monthEndDate(paymentMonth, paymentYear);
   const matchedFiscalYear = await getFiscalYearForDate(validDate, connection);
   const activeFiscalYear = matchedFiscalYear || await getActiveFiscalYear(connection);
   const fiscalYearId = activeFiscalYear?.id || null;
-  const [[existingRun]] = await connection.query(
-    `
-      SELECT id, status
-      FROM payroll_runs
-      WHERE payment_month = ? AND payment_year = ? AND dept_code = ?
-      ORDER BY id DESC
-      LIMIT 1
-    `,
-    [paymentMonth, paymentYear, String(deptCode)]
-  );
-  const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor, activeOnDate: validDate });
+  const [[existingRun]] = resolvedPayrollType === "regular"
+    ? await connection.query(
+        `
+          SELECT id, status
+          FROM payroll_runs
+          WHERE payment_month = ?
+            AND payment_year = ?
+            AND dept_code = ?
+            AND COALESCE(payroll_type, 'regular') = 'regular'
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        [paymentMonth, paymentYear, String(deptCode)]
+      )
+    : [[]];
+  const employees = await getEmployeesForPayroll(connection, {
+    deptCode,
+    gazNg,
+    reportFor,
+    activeOnDate: validDate,
+    employeeCodes: selectedEmployeeCodes
+  });
   const results = [];
 
   for (const employee of employees) {
@@ -770,6 +887,10 @@ export async function previewPayroll({ paymentMonth, paymentYear, deptCode = "99
     fiscalYearName: activeFiscalYear?.name || null,
     existingRunId: existingRun?.id || null,
     existingRunStatus: existingRun?.status || null,
+    payrollType: resolvedPayrollType,
+    supplementaryReason: String(supplementaryReason || "").trim(),
+    supplementaryNote: String(supplementaryNote || "").trim(),
+    selectedEmployeeCodes,
     warningMessage: existingRun
       ? existingRun.status === "draft"
         ? "A draft payroll run already exists for this period. Posting again will replace its payroll journal."
@@ -1058,7 +1179,26 @@ export async function getTaxGenerationBatchDetails(batchId, connection = pool) {
   };
 }
 
-export async function processPayroll({ paymentMonth, paymentYear, deptCode = "999", gazNg = "A", reportFor = "All", processedBy = "Hospital Admin" }) {
+export async function processPayroll({
+  paymentMonth,
+  paymentYear,
+  deptCode = "999",
+  gazNg = "A",
+  reportFor = "All",
+  processedBy = "Hospital Admin",
+  payrollType = "regular",
+  supplementaryReason = "",
+  supplementaryNote = "",
+  employeeCodes = []
+}) {
+  const resolvedPayrollType = normalizePayrollType(payrollType);
+  const selectedEmployeeCodes = normalizeEmployeeCodes(employeeCodes);
+  validateSupplementaryPayrollInput({
+    payrollType: resolvedPayrollType,
+    employeeCodes: selectedEmployeeCodes,
+    supplementaryReason
+  });
+  requireAllowedPayrollProcessingPeriod(paymentMonth, paymentYear);
   const connection = await pool.getConnection();
 
   try {
@@ -1068,10 +1208,12 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
     const activeFiscalYear = matchedFiscalYear || await getActiveFiscalYear(connection);
     const fiscalYearId = activeFiscalYear?.id || null;
 
-    const [[existingRun]] = await connection.query(
-      "SELECT id, status FROM payroll_runs WHERE payment_month = ? AND payment_year = ? AND dept_code = ? LIMIT 1",
-      [paymentMonth, paymentYear, String(deptCode)]
-    );
+    const [[existingRun]] = resolvedPayrollType === "regular"
+      ? await connection.query(
+          "SELECT id, status FROM payroll_runs WHERE payment_month = ? AND payment_year = ? AND dept_code = ? AND COALESCE(payroll_type, 'regular') = 'regular' LIMIT 1",
+          [paymentMonth, paymentYear, String(deptCode)]
+        )
+      : [[]];
 
     if (existingRun && ["processed", "locked"].includes(existingRun.status)) {
       await connection.rollback();
@@ -1082,19 +1224,46 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
 
     if (!runId) {
       const [result] = await connection.query(
-        "INSERT INTO payroll_runs (fiscal_year_id, payment_month, payment_year, dept_code, status, processed_by) VALUES (?, ?, ?, ?, 'draft', ?)",
-        [fiscalYearId, paymentMonth, paymentYear, String(deptCode), processedBy]
+        `
+          INSERT INTO payroll_runs (
+            fiscal_year_id,
+            payroll_type,
+            payment_month,
+            payment_year,
+            dept_code,
+            supplementary_reason,
+            supplementary_note,
+            status,
+            processed_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+        `,
+        [
+          fiscalYearId,
+          resolvedPayrollType,
+          paymentMonth,
+          paymentYear,
+          String(deptCode),
+          resolvedPayrollType === "supplementary" ? String(supplementaryReason || "").trim() : null,
+          resolvedPayrollType === "supplementary" ? String(supplementaryNote || "").trim() : null,
+          processedBy
+        ]
       );
       runId = result.insertId;
     } else {
       await connection.query(
-        "UPDATE payroll_runs SET fiscal_year_id = ?, processed_by = ? WHERE id = ?",
+        "UPDATE payroll_runs SET fiscal_year_id = ?, payroll_type = 'regular', supplementary_reason = NULL, supplementary_note = NULL, processed_by = ? WHERE id = ?",
         [fiscalYearId, processedBy, runId]
       );
       await connection.query("DELETE FROM payroll_run_items WHERE payroll_run_id = ?", [runId]);
     }
 
-    const employees = await getEmployeesForPayroll(connection, { deptCode, gazNg, reportFor, activeOnDate: validDate });
+    const employees = await getEmployeesForPayroll(connection, {
+      deptCode,
+      gazNg,
+      reportFor,
+      activeOnDate: validDate,
+      employeeCodes: selectedEmployeeCodes
+    });
     const results = [];
 
     for (const employee of employees) {
@@ -1191,6 +1360,10 @@ export async function processPayroll({ paymentMonth, paymentYear, deptCode = "99
       status: "processed",
       runId,
       run_id: runId,
+      payrollType: resolvedPayrollType,
+      supplementaryReason: resolvedPayrollType === "supplementary" ? String(supplementaryReason || "").trim() : null,
+      supplementaryNote: resolvedPayrollType === "supplementary" ? String(supplementaryNote || "").trim() : null,
+      selectedEmployeeCodes,
       employeesProcessed: results.length,
       employees_processed: results.length,
       totalGross: results.reduce((total, item) => total + item.grossPay, 0),
@@ -1222,9 +1395,12 @@ export async function getCurrentPayrollPeriod() {
       SELECT
         pr.id,
         pr.fiscal_year_id AS fiscalYearId,
+        pr.payroll_type AS payrollType,
         pr.payment_month AS paymentMonth,
         pr.payment_year AS paymentYear,
         pr.dept_code AS deptCode,
+        pr.supplementary_reason AS supplementaryReason,
+        pr.supplementary_note AS supplementaryNote,
         pr.status,
         pr.processed_at AS processedAt,
         pr.processed_by AS processedBy,
@@ -1234,6 +1410,7 @@ export async function getCurrentPayrollPeriod() {
       FROM payroll_runs pr
       LEFT JOIN fiscal_years fy ON fy.id = pr.fiscal_year_id
       WHERE pr.status = 'draft'
+        AND COALESCE(pr.payroll_type, 'regular') = 'regular'
       ORDER BY pr.payment_year DESC, pr.payment_month DESC, pr.id DESC
       LIMIT 1
     `
@@ -1256,15 +1433,18 @@ export async function countPayrollEmployees({ deptCode = "999", gazNg = "A", rep
   return Number(row?.count || 0);
 }
 
-export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = {}) {
+export async function getPayrollRuns({ month = "", year = "", deptCode = "", payrollType = "" } = {}) {
   const [rows] = await pool.query(
     `
       SELECT
         pr.id,
         pr.fiscal_year_id AS fiscalYearId,
+        pr.payroll_type AS payrollType,
         pr.payment_month AS paymentMonth,
         pr.payment_year AS paymentYear,
         pr.dept_code AS deptCode,
+        pr.supplementary_reason AS supplementaryReason,
+        pr.supplementary_note AS supplementaryNote,
         pr.status,
         pr.processed_at AS processedAt,
         fy.name AS fiscalYearName,
@@ -1294,10 +1474,11 @@ export async function getPayrollRuns({ month = "", year = "", deptCode = "" } = 
       WHERE (? = '' OR pr.payment_month = ?)
         AND (? = '' OR pr.payment_year = ?)
         AND (? = '' OR pr.dept_code = ?)
-      GROUP BY pr.id, pr.fiscal_year_id, fy.name, fy.start_date, fy.end_date, jorig.id, jorig.reference_no, jorig.status, jorig.posted_by, jrev.id, jrev.reference_no, jrev.status, jrev.posted_by
+        AND (? = '' OR COALESCE(pr.payroll_type, 'regular') = ?)
+      GROUP BY pr.id, pr.fiscal_year_id, pr.payroll_type, pr.supplementary_reason, pr.supplementary_note, fy.name, fy.start_date, fy.end_date, jorig.id, jorig.reference_no, jorig.status, jorig.posted_by, jrev.id, jrev.reference_no, jrev.status, jrev.posted_by
       ORDER BY pr.payment_year DESC, pr.payment_month DESC, pr.dept_code ASC
     `,
-    [month, month, year, year, deptCode, deptCode]
+    [month, month, year, year, deptCode, deptCode, payrollType, payrollType]
   );
   return rows;
 }
@@ -1308,9 +1489,12 @@ export async function getPayrollRunById(id) {
       SELECT
         pr.id,
         pr.fiscal_year_id AS fiscalYearId,
+        pr.payroll_type AS payrollType,
         pr.payment_month AS paymentMonth,
         pr.payment_year AS paymentYear,
         pr.dept_code AS deptCode,
+        pr.supplementary_reason AS supplementaryReason,
+        pr.supplementary_note AS supplementaryNote,
         pr.status,
         pr.processed_at AS processedAt,
         pr.processed_by AS processedBy,
@@ -1446,9 +1630,10 @@ export async function voidPayrollRun(id, voidedBy = "Hospital Admin") {
 }
 
 async function getRun(filters = {}) {
+  const payrollType = normalizePayrollType(filters.payrollType || "regular");
   const [[run]] = await pool.query(
-    "SELECT id FROM payroll_runs WHERE payment_month = ? AND payment_year = ? AND dept_code = ? AND status IN ('processed','locked') LIMIT 1",
-    [filters.month, filters.year, String(filters.deptCode || "999")]
+    "SELECT id FROM payroll_runs WHERE payment_month = ? AND payment_year = ? AND dept_code = ? AND COALESCE(payroll_type, 'regular') = ? AND status IN ('processed','locked') ORDER BY id DESC LIMIT 1",
+    [filters.month, filters.year, String(filters.deptCode || "999"), payrollType]
   );
   return run || null;
 }

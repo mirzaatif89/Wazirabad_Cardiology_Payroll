@@ -1356,7 +1356,11 @@ export async function processPayroll(payload) {
       payment_year: Number(payload.year),
       dept_code: payload.deptCode || "999",
       gaz_ng: payload.gazNg || "A",
-      report_for: payload.reportFor || "All"
+      report_for: payload.reportFor || "All",
+      payroll_type: payload.payrollType || "regular",
+      supplementary_reason: payload.supplementaryReason || "",
+      supplementary_note: payload.supplementaryNote || "",
+      employee_codes: payload.employeeCodes || []
     })
   });
   return readJsonResponse(response, "Payroll processing failed.");
@@ -1371,7 +1375,11 @@ export async function previewPayroll(payload) {
       payment_year: Number(payload.year),
       dept_code: payload.deptCode || "999",
       gaz_ng: payload.gazNg || "A",
-      report_for: payload.reportFor || "All"
+      report_for: payload.reportFor || "All",
+      payroll_type: payload.payrollType || "regular",
+      supplementary_reason: payload.supplementaryReason || "",
+      supplementary_note: payload.supplementaryNote || "",
+      employee_codes: payload.employeeCodes || []
     })
   });
   return readJsonResponse(response, "Payroll preview failed.");
@@ -1416,6 +1424,7 @@ export async function getPayrollRuns(filters = {}) {
   if (filters.month) params.set("month", filters.month);
   if (filters.year) params.set("year", filters.year);
   if (filters.deptCode) params.set("dept_code", filters.deptCode);
+  if (filters.payrollType && filters.payrollType !== "all") params.set("payroll_type", filters.payrollType);
   const response = await fetch(`${API_BASE_URL}/payroll/runs?${params.toString()}`);
   return readJsonResponse(response, "Payroll runs failed.");
 }

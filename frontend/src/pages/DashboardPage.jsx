@@ -8630,22 +8630,63 @@ function payrollDefaultFilters(extra = {}) {
     reportFor: "All",
     month: String(today.getMonth() + 1),
     year: String(today.getFullYear()),
+    payrollType: "regular",
+    supplementaryReason: "",
+    supplementaryNote: "",
+    employeeCodes: [],
+    employeeSearch: "",
     outputSelection: "screen",
     ...extra
   };
+}
+
+const supplementaryPayrollReasons = [
+  "Missed Employee",
+  "New Joining",
+  "Arrear",
+  "Correction",
+  "Deduction Refund",
+  "Other"
+];
+
+function getPayrollEmployeeCode(employee) {
+  return String(employee?.employeeCode || employee?.employeeNo || employee?.employee_no || employee?.code || "").trim();
+}
+
+function getPayrollEmployeeName(employee) {
+  return employee?.name || employee?.employeeName || employee?.employee_name || "";
 }
 
 function currentPayrollMonthValue() {
   return String(new Date().getMonth() + 1);
 }
 
+function buildPayrollProcessingPeriods(fiscalYear = null, baseDate = new Date()) {
+  return [0, 1, 2].map((offset) => {
+    const periodDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+    const month = String(periodDate.getMonth() + 1);
+    const year = fiscalYear
+      ? derivePayrollPaymentYear(month, fiscalYear)
+      : String(periodDate.getFullYear());
+    const monthName = payrollMonthOptions[Number(month) - 1] || month;
+    const timing = offset === 0 ? "Current Month" : `Upcoming Month ${offset}`;
+
+    return {
+      key: `${month}-${year}`,
+      month,
+      year,
+      label: `${timing} - ${monthName} ${year}`
+    };
+  });
+}
+
 function currentPayrollFilters(extra = {}, fiscalYear = null) {
-  const month = currentPayrollMonthValue();
+  const [currentPeriod] = buildPayrollProcessingPeriods(fiscalYear);
   return {
     ...payrollDefaultFilters(),
     ...extra,
-    month,
-    year: derivePayrollPaymentYear(month, fiscalYear)
+    month: currentPeriod.month,
+    year: currentPeriod.year
   };
 }
 
@@ -9251,6 +9292,9 @@ function normalizePayrollRun(data) {
     employees,
     items: employees,
     totals,
+    payrollType: data.payrollType || data.payroll_type || "regular",
+    supplementaryReason: data.supplementaryReason || data.supplementary_reason || "",
+    supplementaryNote: data.supplementaryNote || data.supplementary_note || "",
     employeesProcessed: data.employeesProcessed || data.employees_processed || employees.length
   };
 }
@@ -9396,6 +9440,11 @@ function PayrollCalculationResults({ result, filters }) {
   return (
     <div className="arrear-report-print-area salary-calculation-results">
       <ReportLetterhead title="Salary Calculation" filterSummary={`${filters.month}/${filters.year} | Dept ${filters.deptCode || "999"}`} />
+      {result?.payrollType === "supplementary" ? (
+        <p className="form-status neutral no-print">
+          Supplementary payroll: {result.supplementaryReason || "Reason not entered"}{result.supplementaryNote ? ` - ${result.supplementaryNote}` : ""}
+        </p>
+      ) : null}
       <div className="print-section-head">
         <strong>Employees Processed: {rows.length}</strong>
         <span>Gross: PKR {formatCurrency(totals.grossPay)}</span>
@@ -9481,6 +9530,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
   const [currentRuns, setCurrentRuns] = useState([]);
   const [draftRun, setDraftRun] = useState(null);
   const [departments, setDepartments] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -9494,26 +9544,42 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
   const paymentYear = derivePayrollPaymentYear(filters.month, fiscalYear);
   const selectedDepartment = departments.find((department) => String(department.code) === String(filters.deptCode));
   const departmentOptions = [{ code: "999", department: "All Departments" }, ...departments];
-  const lockedMonthName = payrollMonthOptions[Number(filters.month) - 1] || filters.month;
+  const processingPeriods = buildPayrollProcessingPeriods(fiscalYear);
+  const selectedPeriodKey = `${filters.month}-${paymentYear}`;
+  const selectedEmployeeCodes = Array.isArray(filters.employeeCodes) ? filters.employeeCodes : [];
+  const selectedEmployeeCodeSet = new Set(selectedEmployeeCodes);
+  const employeeSearch = String(filters.employeeSearch || "").trim().toLowerCase();
+  const supplementaryEmployees = employees.filter((employee) => {
+    const code = getPayrollEmployeeCode(employee);
+    const name = getPayrollEmployeeName(employee);
+    const employeeDept = String(employee.departmentCode || employee.department_code || "");
+    const active = !employee.status || String(employee.status).toLowerCase() === "active";
+    const deptMatches = String(filters.deptCode || "999") === "999" || employeeDept === String(filters.deptCode);
+    const searchMatches = !employeeSearch || `${code} ${name} ${employee.department || ""}`.toLowerCase().includes(employeeSearch);
+    return code && active && deptMatches && searchMatches;
+  });
 
   const loadCurrentRuns = async (nextFilters = filters) => {
-    const data = await getPayrollRuns(nextFilters);
+    const data = await getPayrollRuns({ ...nextFilters, payrollType: "regular" });
     setCurrentRuns(data.data || []);
     return data.data || [];
   };
 
   const loadMasters = async () => {
     try {
-      const [departmentResponse, fiscalYearResponse] = await Promise.all([
+      const [departmentResponse, fiscalYearResponse, employeeResponse] = await Promise.all([
         getDepartments(),
-        getFiscalYears()
+        getFiscalYears(),
+        getEmployees()
       ]);
 
       const departmentRows = departmentResponse || [];
       const fiscalYearRows = fiscalYearResponse || [];
+      const employeeRows = Array.isArray(employeeResponse) ? employeeResponse : employeeResponse?.data || [];
 
       setDepartments(departmentRows);
       setFiscalYears(fiscalYearRows);
+      setEmployees(employeeRows);
 
       const activeRow = fiscalYearRows.find((record) => Number(record.isActive) === 1)
         || fiscalYearRows[0]
@@ -9526,6 +9592,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     } catch {
       setDepartments([]);
       setFiscalYears([]);
+      setEmployees([]);
     }
   };
 
@@ -9544,8 +9611,6 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
           ...currentPayrollFilters({
             deptCode: String(currentDraft.deptCode || "999")
           }, draftFiscalYear),
-          month: currentPayrollMonthValue(),
-          year: derivePayrollPaymentYear(currentPayrollMonthValue(), draftFiscalYear),
           deptCode: String(currentDraft.deptCode || "999")
         };
         const draftIsCurrentMonth =
@@ -9583,8 +9648,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
   useEffect(() => {
     setFilters((current) => ({
       ...current,
-      month: currentPayrollMonthValue(),
-      year: derivePayrollPaymentYear(currentPayrollMonthValue(), fiscalYear)
+      year: derivePayrollPaymentYear(current.month, fiscalYear)
     }));
   }, [fiscalYear, selectedFiscalYearId]);
 
@@ -9593,22 +9657,42 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     let nextFiscalYearId = selectedFiscalYearId;
     let nextFilters = { ...filters };
 
-    if (name === "fiscalYearId") {
+    if (name === "period") {
+      const selectedPeriod = processingPeriods.find((period) => period.key === value) || processingPeriods[0];
+      nextFilters.month = selectedPeriod.month;
+      nextFilters.year = selectedPeriod.year;
+    } else if (name === "fiscalYearId") {
       nextFiscalYearId = value;
       const nextFiscalYear = fiscalYears.find((record) => String(record.id) === String(value)) || null;
-      nextFilters.month = currentPayrollMonthValue();
+      const nextPeriods = buildPayrollProcessingPeriods(nextFiscalYear);
+      const matchingPeriod = nextPeriods.find((period) => period.month === nextFilters.month) || nextPeriods[0];
+      nextFilters.month = matchingPeriod.month;
       nextFilters.year = derivePayrollPaymentYear(nextFilters.month, nextFiscalYear);
       setSelectedFiscalYearId(value);
     } else {
       nextFilters[name] = value;
-      nextFilters.month = currentPayrollMonthValue();
       nextFilters.year = derivePayrollPaymentYear(nextFilters.month, fiscalYear);
+    }
+
+    if (name === "payrollType") {
+      nextFilters = {
+        ...nextFilters,
+        supplementaryReason: value === "supplementary" ? nextFilters.supplementaryReason : "",
+        supplementaryNote: value === "supplementary" ? nextFilters.supplementaryNote : "",
+        employeeCodes: value === "supplementary" ? nextFilters.employeeCodes : [],
+        employeeSearch: ""
+      };
+    }
+
+    if (name === "deptCode" && nextFilters.payrollType === "supplementary") {
+      nextFilters.employeeCodes = [];
     }
 
     const periodChanged =
       String(nextFilters.month) !== String(filters.month) ||
       String(nextFilters.year) !== String(filters.year) ||
       String(nextFilters.deptCode) !== String(filters.deptCode) ||
+      String(nextFilters.payrollType) !== String(filters.payrollType) ||
       String(nextFiscalYearId) !== String(selectedFiscalYearId);
 
     setFilters(nextFilters);
@@ -9717,10 +9801,33 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     }
   };
 
+  const toggleSupplementaryEmployee = (employeeCode) => {
+    setFilters((current) => {
+      const codes = Array.isArray(current.employeeCodes) ? current.employeeCodes : [];
+      const exists = codes.includes(employeeCode);
+      return {
+        ...current,
+        employeeCodes: exists ? codes.filter((code) => code !== employeeCode) : [...codes, employeeCode]
+      };
+    });
+  };
+
   const run = async () => {
     if (!filters.month || !filters.year) {
       setStatus({ type: "error", message: "Month and year are required." });
       return;
+    }
+
+    if (filters.payrollType === "supplementary") {
+      if (!String(filters.supplementaryReason || "").trim()) {
+        setStatus({ type: "error", message: "Select a supplementary payroll reason before preview." });
+        return;
+      }
+
+      if (!selectedEmployeeCodes.length) {
+        setStatus({ type: "error", message: "Select at least one employee for supplementary payroll." });
+        return;
+      }
     }
 
     setLoading(true);
@@ -9729,7 +9836,9 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     try {
       const response = await previewPayroll({ ...filters, year: paymentYear });
       const preview = normalizePayrollPreview(response.data);
-      const previewMessage = preview?.warningMessage
+      const previewMessage = preview?.payrollType === "supplementary"
+        ? `Review supplementary payroll for ${selectedEmployeeCodes.length} selected employee(s), then post only if the correction is approved.`
+        : preview?.warningMessage
         ? `${preview.warningMessage} Review the preview before posting payroll for ${filters.month}/${paymentYear}.`
         : `Review the preview for ${preview?.fiscalYearName || "the selected fiscal year"} before posting payroll for ${filters.month}/${paymentYear}.`;
       setConfirmDialog({
@@ -9821,13 +9930,15 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     exportRowsToExcel(rows, `salary-calculation-${result?.paymentMonth || filters.month}-${result?.paymentYear || paymentYear}.xlsx`);
   };
 
-  const hasProcessedRun = Boolean(result?.runId) || currentRuns.some((runItem) => ["processed", "locked"].includes(runItem.status));
+  const hasProcessedRun = filters.payrollType !== "supplementary" &&
+    (Boolean(result?.runId) || currentRuns.some((runItem) => ["processed", "locked"].includes(runItem.status)));
   const resultFilters = result
     ? {
         ...filters,
         month: String(result.paymentMonth || filters.month),
         year: String(result.paymentYear || paymentYear),
-        deptCode: String(result.deptCode || filters.deptCode || "999")
+        deptCode: String(result.deptCode || filters.deptCode || "999"),
+        payrollType: result.payrollType || filters.payrollType || "regular"
       }
     : filters;
 
@@ -9881,9 +9992,10 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
             <li><strong>Create master codes:</strong> Add departments, designations, banks, bank branches, accounts, and wage codes before adding salary records.</li>
             <li><strong>Add employee records:</strong> Save employee code, department, designation, BPS, bank code, branch code, account number, and active/inactive status.</li>
             <li><strong>Attach allowances/deductions:</strong> Use Pay Allowances Entry for employee wage-code amounts. Use Tax Slab Settings for income tax rules.</li>
-            <li><strong>Current month only:</strong> Payroll processing is locked to the current month. Choose fiscal year and department only. Use dept code 999 to process all departments.</li>
+            <li><strong>Allowed months:</strong> Payroll processing is limited to the current month and the next two upcoming months. Choose a department, or use dept code 999 to process all departments.</li>
             <li><strong>Start preview:</strong> Click Start. The system calculates gross pay, deductions, tax, advances, and net pay for eligible employees.</li>
             <li><strong>Post payroll:</strong> Review the preview. Click Post Payroll only when totals are correct. This saves the run and creates linked payroll records.</li>
+            <li><strong>Supplementary payroll:</strong> Choose Supplementary Payroll, select the reason and employees, then preview and post a separate correction run.</li>
             <li><strong>Print/export reports:</strong> Use Bank Summary, Non Bank Salary, Grand Bank Summary, Payment List, Pay Slips, and audit reports after posting.</li>
             <li><strong>Correct mistakes:</strong> Use Reprocess to reopen a posted run, or Void/Delete to cancel a wrong run. Linked journal/reversal details stay in history.</li>
           </ol>
@@ -9902,12 +10014,19 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
           </select>
         </label>
         <label>
-          <span>Current Payroll Month</span>
-          <input type="text" value={`${filters.month} - ${lockedMonthName}`} readOnly />
+          <span>Payroll Period</span>
+          <select name="period" value={selectedPeriodKey} onChange={updateFilter}>
+            {processingPeriods.map((period) => (
+              <option value={period.key} key={period.key}>{period.label}</option>
+            ))}
+          </select>
         </label>
         <label>
-          <span>Payment Year</span>
-          <input type="text" value={paymentYear} readOnly />
+          <span>Payroll Type</span>
+          <select name="payrollType" value={filters.payrollType} onChange={updateFilter}>
+            <option value="regular">Regular Payroll</option>
+            <option value="supplementary">Supplementary Payroll</option>
+          </select>
         </label>
         <label>
           <span>Dept Code</span>
@@ -9925,9 +10044,92 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
         </label>
         <div className="report-filter-actions">
           <button type="button" onClick={goBack}>Go Back</button>
-          <button type="button" onClick={run} disabled={loading}>{loading ? "Calculating..." : draftRun ? "Resume" : "Start"}</button>
+          <button type="button" onClick={run} disabled={loading}>
+            {loading ? "Calculating..." : filters.payrollType === "supplementary" ? "Start Supplementary" : draftRun ? "Resume" : "Start"}
+          </button>
         </div>
       </div>
+      {filters.payrollType === "supplementary" ? (
+        <div className="supplementary-payroll-panel no-print">
+          <div className="supplementary-payroll-head">
+            <div>
+              <p>Supplementary Payroll</p>
+              <h3>Pay selected employees outside the regular run</h3>
+              <span>Use this for missed employees, new joining, arrears, corrections, or refunds. It creates a separate payroll run for history.</span>
+            </div>
+            <strong>{selectedEmployeeCodes.length} selected</strong>
+          </div>
+          <div className="supplementary-payroll-form">
+            <label>
+              <span>Reason</span>
+              <select name="supplementaryReason" value={filters.supplementaryReason} onChange={updateFilter}>
+                <option value="">Select reason</option>
+                {supplementaryPayrollReasons.map((reason) => (
+                  <option value={reason} key={reason}>{reason}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Search Employee</span>
+              <input
+                name="employeeSearch"
+                type="search"
+                value={filters.employeeSearch}
+                onChange={updateFilter}
+                placeholder="Search code, name, department"
+              />
+            </label>
+            <label className="supplementary-note-field">
+              <span>Note</span>
+              <input
+                name="supplementaryNote"
+                value={filters.supplementaryNote}
+                onChange={updateFilter}
+                placeholder="Optional approval/reference note"
+              />
+            </label>
+          </div>
+          <div className="table-wrap supplementary-employee-wrap">
+            <table className="employee-table supplementary-employee-table">
+              <thead>
+                <tr>
+                  <th>Select</th>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplementaryEmployees.map((employee) => {
+                  const employeeCode = getPayrollEmployeeCode(employee);
+                  return (
+                    <tr key={employeeCode} className={selectedEmployeeCodeSet.has(employeeCode) ? "selected-row" : ""}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${employeeCode} ${getPayrollEmployeeName(employee)}`}
+                          checked={selectedEmployeeCodeSet.has(employeeCode)}
+                          onChange={() => toggleSupplementaryEmployee(employeeCode)}
+                        />
+                      </td>
+                      <td>{employeeCode}</td>
+                      <td>{getPayrollEmployeeName(employee) || "-"}</td>
+                      <td>{employee.department || employee.departmentCode || "-"}</td>
+                      <td>{employee.status || "active"}</td>
+                    </tr>
+                  );
+                })}
+                {!supplementaryEmployees.length ? (
+                  <tr>
+                    <td colSpan="5">No active employees found for this department/search.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
       {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
       {hasProcessedRun ? (
         <div className="salary-run-actions no-print">
@@ -9988,7 +10190,8 @@ export function PayrollHistoryPage() {
     month: "",
     year: "",
     deptCode: "",
-    status: "all"
+    status: "all",
+    payrollType: "all"
   });
   const [status, setStatus] = useState({ type: "", message: "Loading payroll history..." });
   const [loading, setLoading] = useState(false);
@@ -10001,13 +10204,15 @@ export function PayrollHistoryPage() {
 
   const filteredRuns = runs.filter((run) => {
     const statusFilter = String(filters.status || "all").toLowerCase();
+    const payrollTypeFilter = String(filters.payrollType || "all").toLowerCase();
     const statusMatches = statusFilter === "all" || String(run.status || "").toLowerCase() === statusFilter;
+    const payrollTypeMatches = payrollTypeFilter === "all" || String(run.payrollType || "regular").toLowerCase() === payrollTypeFilter;
     const monthMatches = !filters.month || String(run.paymentMonth) === String(filters.month);
     const yearMatches = !filters.year || String(run.paymentYear) === String(filters.year);
     const deptMatches = !filters.deptCode || String(run.deptCode || "").toLowerCase().includes(filters.deptCode.trim().toLowerCase());
     const search = filters.search.trim().toLowerCase();
 
-    if (!statusMatches || !monthMatches || !yearMatches || !deptMatches) {
+    if (!statusMatches || !payrollTypeMatches || !monthMatches || !yearMatches || !deptMatches) {
       return false;
     }
 
@@ -10019,6 +10224,9 @@ export function PayrollHistoryPage() {
       run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
       run.fiscalYearName,
       run.deptCode,
+      run.payrollType,
+      run.supplementaryReason,
+      run.supplementaryNote,
       run.status,
       run.employeeCount,
       run.totalGross,
@@ -10076,6 +10284,9 @@ export function PayrollHistoryPage() {
       Month: run.paymentMonth ? `${String(run.paymentMonth).padStart(2, "0")}/${run.paymentYear}` : "",
       "Fiscal Year": run.fiscalYearName || "",
       Department: run.deptCode || "",
+      Type: run.payrollType || "regular",
+      Reason: run.supplementaryReason || "",
+      Note: run.supplementaryNote || "",
       Status: run.status || "",
       Employees: run.employeeCount || 0,
       Gross: Number(run.totalGross || 0),
@@ -10093,7 +10304,8 @@ export function PayrollHistoryPage() {
     ? {
         month: String(selectedRun.paymentMonth || ""),
         year: String(selectedRun.paymentYear || ""),
-        deptCode: String(selectedRun.deptCode || "999")
+        deptCode: String(selectedRun.deptCode || "999"),
+        payrollType: selectedRun.payrollType || "regular"
       }
     : null;
 
@@ -10159,6 +10371,14 @@ export function PayrollHistoryPage() {
             <option value="void">Void</option>
           </select>
         </label>
+        <label>
+          <span>Type</span>
+          <select name="payrollType" value={filters.payrollType} onChange={updateFilter}>
+            <option value="all">All Types</option>
+            <option value="regular">Regular</option>
+            <option value="supplementary">Supplementary</option>
+          </select>
+        </label>
       </div>
 
       {status.message ? <p className={`form-status ${status.type || "neutral"} no-print`}>{status.message}</p> : null}
@@ -10170,6 +10390,8 @@ export function PayrollHistoryPage() {
               <th>Month</th>
               <th>Fiscal Year</th>
               <th>Dept</th>
+              <th>Type</th>
+              <th>Reason</th>
               <th>Status</th>
               <th>Employees</th>
               <th>Gross</th>
@@ -10186,6 +10408,8 @@ export function PayrollHistoryPage() {
                 <td>{String(run.paymentMonth).padStart(2, "0")}/{run.paymentYear}</td>
                 <td>{run.fiscalYearName || "-"}</td>
                 <td>{run.deptCode}</td>
+                <td>{run.payrollType || "regular"}</td>
+                <td>{run.supplementaryReason || "-"}</td>
                 <td><span className="employee-status-pill neutral">{run.status}</span></td>
                 <td>{run.employeeCount || 0}</td>
                 <td className="amount-cell">{formatCurrency(run.totalGross)}</td>
@@ -10202,7 +10426,7 @@ export function PayrollHistoryPage() {
             ))}
             {!filteredRuns.length ? (
               <tr>
-                <td colSpan="11">No payroll history found for the selected filters.</td>
+                <td colSpan="13">No payroll history found for the selected filters.</td>
               </tr>
             ) : null}
           </tbody>
@@ -11037,9 +11261,21 @@ function ActiveInactiveReportPage({ monthwise = false }) {
   };
 
   return (
-    <section className="module-card report-page">
-      <ReportToolbar title={title} onPrint={() => printCurrentDocumentAsExcel(title)} />
-      <PayrollFilter filters={filters} setFilters={setFilters} onRun={run} loading={loading} simple={false} />
+    <section className="employee-entry-panel arrear-report-panel">
+      <PayrollFilter
+        title={title}
+        filters={filters}
+        setFilters={setFilters}
+        onRun={run}
+        onCancel={() => setReport(null)}
+        loading={loading}
+        simple={false}
+      />
+      <p className="form-status neutral no-print">
+        {monthwise
+          ? "Shows employees active/inactive for the selected payroll month."
+          : "Shows the complete employee list with current active/inactive status."}
+      </p>
       {report ? (
         <div className="arrear-report-print-area">
           <ReportLetterhead title={title} filterSummary={`${filters.month}/${filters.year}`} />
