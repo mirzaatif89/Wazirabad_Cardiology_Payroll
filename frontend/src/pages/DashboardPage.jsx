@@ -8669,13 +8669,12 @@ function buildPayrollProcessingPeriods(fiscalYear = null, baseDate = new Date())
       ? derivePayrollPaymentYear(month, fiscalYear)
       : String(periodDate.getFullYear());
     const monthName = payrollMonthOptions[Number(month) - 1] || month;
-    const timing = offset === 0 ? "Current Month" : `Upcoming Month ${offset}`;
 
     return {
       key: `${month}-${year}`,
       month,
       year,
-      label: `${timing} - ${monthName} ${year}`
+      label: `${monthName} ${year}`
     };
   });
 }

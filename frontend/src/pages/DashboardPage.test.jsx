@@ -208,9 +208,9 @@ describe("Payroll processing current month and history", () => {
 
     expect(periodSelect).toHaveValue(`${currentMonth}-${currentYear}`);
     expect(periodOptions).toHaveLength(3);
-    expect(periodOptions[0]).toMatch(new RegExp(`Current Month - ${today.toLocaleString("en-US", { month: "long" })}`));
-    expect(periodOptions[1]).toMatch(new RegExp(`Upcoming Month 1 - ${nextMonth.toLocaleString("en-US", { month: "long" })}`));
-    expect(periodOptions[2]).toMatch(new RegExp(`Upcoming Month 2 - ${secondNextMonth.toLocaleString("en-US", { month: "long" })}`));
+    expect(periodOptions[0]).toBe(`${today.toLocaleString("en-US", { month: "long" })} ${currentYear}`);
+    expect(periodOptions[1]).toMatch(new RegExp(`^${nextMonth.toLocaleString("en-US", { month: "long" })} \\d{4}$`));
+    expect(periodOptions[2]).toMatch(new RegExp(`^${secondNextMonth.toLocaleString("en-US", { month: "long" })} \\d{4}$`));
     expect(screen.queryByLabelText("Month")).not.toBeInTheDocument();
     expect(screen.queryByText("Payroll Run History")).not.toBeInTheDocument();
     expect(screen.getByText(/Previous payroll months are available/)).toBeVisible();
