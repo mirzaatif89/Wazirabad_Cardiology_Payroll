@@ -17,13 +17,15 @@ import {
   reopenRun,
   voidRun,
   scaleAuditRegister,
-  singlePayslip
+  singlePayslip,
+  supplementaryEligibleEmployees
 } from "../controllers/payrollController.js";
 
 const router = Router();
 
 router.get("/current-period", currentPayrollPeriod);
 router.get("/employee-count", employeeCount);
+router.get("/supplementary-eligible-employees", supplementaryEligibleEmployees);
 router.post("/preview", previewPayrollRun);
 router.post("/process", processPayrollRun);
 router.get("/runs", listPayrollRuns);

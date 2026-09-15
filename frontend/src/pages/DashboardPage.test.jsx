@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   getPayrollCurrentPeriod: vi.fn(),
   getPayrollMonthDifference: vi.fn(),
   getPayrollRuns: vi.fn(),
+  getSupplementaryPayrollEligibleEmployees: vi.fn(),
   previewPayroll: vi.fn(),
   processPayroll: vi.fn()
 }));
@@ -154,10 +155,14 @@ describe("Payroll processing current month and history", () => {
       }
     ]);
     apiMocks.getPayrollCurrentPeriod.mockResolvedValue({ data: null });
-    apiMocks.getEmployees.mockResolvedValue([
-      { employeeNo: "03", name: "Maria Sana", departmentCode: "001", department: "General", status: "active" },
-      { employeeNo: "04", name: "Ali Khan", departmentCode: "002", department: "Admin", status: "active" }
-    ]);
+    apiMocks.getSupplementaryPayrollEligibleEmployees.mockResolvedValue({
+      data: {
+        paidEmployeeCodes: ["01"],
+        employees: [
+          { employeeCode: "03", name: "Maria Sana", departmentCode: "001", department: "General", status: "active" }
+        ]
+      }
+    });
     apiMocks.previewPayroll.mockResolvedValue({
       data: {
         paymentMonth: new Date().getMonth() + 1,
@@ -244,6 +249,13 @@ describe("Payroll processing current month and history", () => {
 
     await user.selectOptions(await screen.findByLabelText("Payroll Type"), "supplementary");
     await user.selectOptions(screen.getByLabelText("Dept Code"), "001");
+    await waitFor(() => {
+      expect(apiMocks.getSupplementaryPayrollEligibleEmployees).toHaveBeenCalledWith(expect.objectContaining({
+        deptCode: "001"
+      }));
+    });
+    expect(screen.getByText(/1 already-paid employee/)).toBeVisible();
+    expect(screen.queryByLabelText("Select 01")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Reason"), "Missed Employee");
     await user.click(await screen.findByLabelText("Select 03 Maria Sana"));
     await user.click(screen.getByRole("button", { name: "Start Supplementary" }));

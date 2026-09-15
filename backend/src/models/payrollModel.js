@@ -287,8 +287,12 @@ async function getEmployeesForPayroll(connection, filters = {}) {
   const { where, params } = employeeWhere(filters);
   const activeOnDate = filters.activeOnDate || new Date().toISOString().slice(0, 10);
   const employeeCodes = normalizeEmployeeCodes(filters.employeeCodes);
+  const excludeEmployeeCodes = normalizeEmployeeCodes(filters.excludeEmployeeCodes);
   const employeeCodeWhere = employeeCodes.length
     ? `AND e.employee_no IN (${employeeCodes.map(() => "?").join(", ")})`
+    : "";
+  const excludeEmployeeCodeWhere = excludeEmployeeCodes.length
+    ? `AND e.employee_no NOT IN (${excludeEmployeeCodes.map(() => "?").join(", ")})`
     : "";
   const [rows] = await connection.query(
     `
@@ -310,11 +314,79 @@ async function getEmployeesForPayroll(connection, filters = {}) {
         AND COALESCE(e.status, 'active') = 'active'
         AND (e.stop_date IS NULL OR e.stop_date > ?)
         ${employeeCodeWhere}
+        ${excludeEmployeeCodeWhere}
       ORDER BY CAST(e.employee_no AS UNSIGNED), e.employee_no
     `,
-    [...params, activeOnDate, ...employeeCodes]
+    [...params, activeOnDate, ...employeeCodes, ...excludeEmployeeCodes]
   );
   return rows;
+}
+
+async function getPayrollRunEmployeeCodesForPeriod(connection, { paymentMonth, paymentYear, deptCode = "999" } = {}) {
+  const params = [paymentMonth, paymentYear];
+  let deptSql = "";
+
+  if (deptCode && String(deptCode) !== "999") {
+    deptSql = "AND pr.dept_code IN (?, '999')";
+    params.push(String(deptCode));
+  }
+
+  const [rows] = await connection.query(
+    `
+      SELECT DISTINCT pri.employee_code AS employeeCode
+      FROM payroll_run_items pri
+      INNER JOIN payroll_runs pr ON pr.id = pri.payroll_run_id
+      WHERE pr.payment_month = ?
+        AND pr.payment_year = ?
+        AND COALESCE(pr.status, 'draft') <> 'void'
+        ${deptSql}
+    `,
+    params
+  );
+
+  return rows.map((row) => String(row.employeeCode || "").trim()).filter(Boolean);
+}
+
+function assertSupplementaryEmployeesAreUnpaid(selectedEmployeeCodes, paidEmployeeCodes) {
+  const paidSet = new Set(normalizeEmployeeCodes(paidEmployeeCodes));
+  const duplicateCodes = normalizeEmployeeCodes(selectedEmployeeCodes).filter((code) => paidSet.has(code));
+
+  if (!duplicateCodes.length) {
+    return;
+  }
+
+  const error = new Error(`Supplementary payroll cannot include employees already paid in this period: ${duplicateCodes.join(", ")}.`);
+  error.code = "SUPPLEMENTARY_PAYROLL_INVALID";
+  error.employeeCodes = duplicateCodes;
+  throw error;
+}
+
+export async function getSupplementaryPayrollEligibleEmployees({
+  paymentMonth,
+  paymentYear,
+  deptCode = "999",
+  gazNg = "A",
+  reportFor = "All"
+} = {}) {
+  requireAllowedPayrollProcessingPeriod(paymentMonth, paymentYear);
+  const validDate = monthEndDate(paymentMonth, paymentYear);
+  const paidEmployeeCodes = await getPayrollRunEmployeeCodesForPeriod(pool, { paymentMonth, paymentYear, deptCode });
+  const employees = await getEmployeesForPayroll(pool, {
+    deptCode,
+    gazNg,
+    reportFor,
+    activeOnDate: validDate,
+    excludeEmployeeCodes: paidEmployeeCodes
+  });
+
+  return {
+    paymentMonth,
+    paymentYear,
+    deptCode: String(deptCode || "999"),
+    paidEmployeeCodes,
+    employees,
+    count: employees.length
+  };
 }
 
 async function findEmployeeForPayroll(employeeCode, connection = pool, activeOnDate = new Date().toISOString().slice(0, 10)) {
@@ -843,12 +915,19 @@ export async function previewPayroll({
         [paymentMonth, paymentYear, String(deptCode)]
       )
     : [[]];
+  const paidEmployeeCodes = resolvedPayrollType === "supplementary"
+    ? await getPayrollRunEmployeeCodesForPeriod(connection, { paymentMonth, paymentYear, deptCode })
+    : [];
+  if (resolvedPayrollType === "supplementary") {
+    assertSupplementaryEmployeesAreUnpaid(selectedEmployeeCodes, paidEmployeeCodes);
+  }
   const employees = await getEmployeesForPayroll(connection, {
     deptCode,
     gazNg,
     reportFor,
     activeOnDate: validDate,
-    employeeCodes: selectedEmployeeCodes
+    employeeCodes: selectedEmployeeCodes,
+    excludeEmployeeCodes: paidEmployeeCodes
   });
   const results = [];
 
@@ -891,6 +970,7 @@ export async function previewPayroll({
     supplementaryReason: String(supplementaryReason || "").trim(),
     supplementaryNote: String(supplementaryNote || "").trim(),
     selectedEmployeeCodes,
+    paidEmployeeCodes,
     warningMessage: existingRun
       ? existingRun.status === "draft"
         ? "A draft payroll run already exists for this period. Posting again will replace its payroll journal."
@@ -1220,6 +1300,13 @@ export async function processPayroll({
       return { status: "already_processed", runId: existingRun.id };
     }
 
+    const paidEmployeeCodes = resolvedPayrollType === "supplementary"
+      ? await getPayrollRunEmployeeCodesForPeriod(connection, { paymentMonth, paymentYear, deptCode })
+      : [];
+    if (resolvedPayrollType === "supplementary") {
+      assertSupplementaryEmployeesAreUnpaid(selectedEmployeeCodes, paidEmployeeCodes);
+    }
+
     let runId = existingRun?.id;
 
     if (!runId) {
@@ -1262,7 +1349,8 @@ export async function processPayroll({
       gazNg,
       reportFor,
       activeOnDate: validDate,
-      employeeCodes: selectedEmployeeCodes
+      employeeCodes: selectedEmployeeCodes,
+      excludeEmployeeCodes: paidEmployeeCodes
     });
     const results = [];
 
@@ -1364,6 +1452,7 @@ export async function processPayroll({
       supplementaryReason: resolvedPayrollType === "supplementary" ? String(supplementaryReason || "").trim() : null,
       supplementaryNote: resolvedPayrollType === "supplementary" ? String(supplementaryNote || "").trim() : null,
       selectedEmployeeCodes,
+      paidEmployeeCodes,
       employeesProcessed: results.length,
       employees_processed: results.length,
       totalGross: results.reduce((total, item) => total + item.grossPay, 0),

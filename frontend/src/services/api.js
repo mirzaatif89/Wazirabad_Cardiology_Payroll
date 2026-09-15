@@ -1396,6 +1396,12 @@ export async function getPayrollEmployeeCount(filters = {}) {
   return readJsonResponse(response, "Payroll employee count failed.");
 }
 
+export async function getSupplementaryPayrollEligibleEmployees(filters = {}) {
+  const params = payrollParams(filters);
+  const response = await fetch(`${API_BASE_URL}/payroll/supplementary-eligible-employees?${params.toString()}`);
+  return readJsonResponse(response, "Supplementary eligible employees failed.");
+}
+
 export async function getPayrollRun(id) {
   const response = await fetch(`${API_BASE_URL}/payroll/runs/${encodeURIComponent(id)}`);
   return readJsonResponse(response, "Payroll run failed.");

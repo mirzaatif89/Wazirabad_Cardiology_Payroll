@@ -6,6 +6,7 @@ import {
   getGrandBankSummary,
   getListOfPayment,
   getPayrollRunById,
+  getSupplementaryPayrollEligibleEmployees,
   getPayrollMonthDifference,
   getNonBankSalary,
   getPaymentList,
@@ -114,6 +115,28 @@ export async function employeeCount(req, res) {
   } catch (error) {
     console.error("Payroll employee count failed:", error);
     return res.status(500).json({ success: false, data: { count: 0 }, message: "Payroll employee count failed." });
+  }
+}
+
+export async function supplementaryEligibleEmployees(req, res) {
+  const filter = filters(req);
+  if (!requirePeriod(res, filter)) return;
+
+  try {
+    const data = await getSupplementaryPayrollEligibleEmployees({
+      paymentMonth: filter.month,
+      paymentYear: filter.year,
+      deptCode: filter.deptCode,
+      gazNg: filter.gazNg,
+      reportFor: filter.reportFor
+    });
+    return res.json({ success: true, data, message: "Supplementary eligible employees loaded." });
+  } catch (error) {
+    if (error.code === "PAYROLL_PERIOD_NOT_ALLOWED") {
+      return res.status(400).json({ success: false, data: null, message: error.message });
+    }
+    console.error("Supplementary eligible employees failed:", error);
+    return res.status(500).json({ success: false, data: null, message: "Supplementary eligible employees failed." });
   }
 }
 

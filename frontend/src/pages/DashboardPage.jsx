@@ -80,6 +80,7 @@ import {
   getPayrollRun,
   getPayrollRuns,
   getSinglePayrollPayslip,
+  getSupplementaryPayrollEligibleEmployees,
   getReportModule,
   getReportScheduleDefaults,
   getSpecialPay,
@@ -9530,6 +9531,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
   const [draftRun, setDraftRun] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [paidSupplementaryEmployeeCodes, setPaidSupplementaryEmployeeCodes] = useState([]);
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
@@ -9564,21 +9566,50 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
     return data.data || [];
   };
 
+  const loadSupplementaryEmployees = async (nextFilters = filters) => {
+    if (nextFilters.payrollType !== "supplementary") {
+      setEmployees([]);
+      setPaidSupplementaryEmployeeCodes([]);
+      return [];
+    }
+
+    try {
+      const response = await getSupplementaryPayrollEligibleEmployees({
+        ...nextFilters,
+        year: nextFilters.year || derivePayrollPaymentYear(nextFilters.month, fiscalYear)
+      });
+      const eligibleEmployees = response.data?.employees || [];
+      const paidCodes = response.data?.paidEmployeeCodes || [];
+      const eligibleCodeSet = new Set(eligibleEmployees.map(getPayrollEmployeeCode));
+
+      setEmployees(eligibleEmployees);
+      setPaidSupplementaryEmployeeCodes(paidCodes);
+      setFilters((current) => ({
+        ...current,
+        employeeCodes: (Array.isArray(current.employeeCodes) ? current.employeeCodes : []).filter((code) => eligibleCodeSet.has(code))
+      }));
+
+      return eligibleEmployees;
+    } catch (error) {
+      setEmployees([]);
+      setPaidSupplementaryEmployeeCodes([]);
+      setStatus({ type: "error", message: error.message });
+      return [];
+    }
+  };
+
   const loadMasters = async () => {
     try {
-      const [departmentResponse, fiscalYearResponse, employeeResponse] = await Promise.all([
+      const [departmentResponse, fiscalYearResponse] = await Promise.all([
         getDepartments(),
-        getFiscalYears(),
-        getEmployees()
+        getFiscalYears()
       ]);
 
       const departmentRows = departmentResponse || [];
       const fiscalYearRows = fiscalYearResponse || [];
-      const employeeRows = Array.isArray(employeeResponse) ? employeeResponse : employeeResponse?.data || [];
 
       setDepartments(departmentRows);
       setFiscalYears(fiscalYearRows);
-      setEmployees(employeeRows);
 
       const activeRow = fiscalYearRows.find((record) => Number(record.isActive) === 1)
         || fiscalYearRows[0]
@@ -9712,6 +9743,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
       setCurrentRuns([]);
       setStatus({ type: "neutral", message: `Ready to start payroll for ${nextFilters.month}/${nextFilters.year}.` });
       loadCurrentRuns(nextFilters).catch(() => setCurrentRuns([]));
+      loadSupplementaryEmployees(nextFilters);
     }
   };
 
@@ -9866,6 +9898,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
       setStatus({ type: "success", message: response.message });
       setDraftRun(null);
       await loadCurrentRuns();
+      await loadSupplementaryEmployees();
     } catch (error) {
       if (error.status === 409 && error.data?.runId) {
         try {
@@ -10054,7 +10087,10 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
             <div>
               <p>Supplementary Payroll</p>
               <h3>Pay selected employees outside the regular run</h3>
-              <span>Use this for missed employees, new joining, arrears, corrections, or refunds. It creates a separate payroll run for history.</span>
+              <span>
+                Only employees not already included in payroll for {filters.month}/{paymentYear} are shown.
+                {paidSupplementaryEmployeeCodes.length ? ` ${paidSupplementaryEmployeeCodes.length} already-paid employee(s) are hidden.` : ""}
+              </span>
             </div>
             <strong>{selectedEmployeeCodes.length} selected</strong>
           </div>
@@ -10121,7 +10157,7 @@ export function PayrollProcessPage({ title = "Salary Calculation", onGoBack, act
                 })}
                 {!supplementaryEmployees.length ? (
                   <tr>
-                    <td colSpan="5">No active employees found for this department/search.</td>
+                    <td colSpan="5">No unpaid active employees found for this period, department, or search.</td>
                   </tr>
                 ) : null}
               </tbody>
