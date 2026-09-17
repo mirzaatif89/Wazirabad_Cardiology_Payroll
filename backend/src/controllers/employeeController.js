@@ -8,9 +8,25 @@ import {
 } from "../models/employeeModel.js";
 import { resolveEmployeeBankSelection } from "../models/bankModel.js";
 
+const requiredEmployeeFields = [
+  ["employeeNo", "Employee No."],
+  ["name", "Name"],
+  ["fatherName", "Father Name"],
+  ["designationCode", "Designation Code"],
+  ["bps", "BPS"],
+  ["gazNg", "Gaz/NG"],
+  ["dateOfJoining", "Date Of Joining"],
+  ["departmentCode", "Department Code"],
+  ["serviceType", "Service Type"]
+];
+
 function validateEmployee(employee) {
-  if (!employee.employeeNo || !employee.name) {
-    return "Employee No. and Name are required.";
+  const missingFields = requiredEmployeeFields
+    .filter(([fieldName]) => !String(employee[fieldName] || "").trim())
+    .map(([_fieldName, label]) => label);
+
+  if (missingFields.length) {
+    return `Required employee fields missing: ${missingFields.join(", ")}.`;
   }
 
   if (employee.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(employee.email)) {

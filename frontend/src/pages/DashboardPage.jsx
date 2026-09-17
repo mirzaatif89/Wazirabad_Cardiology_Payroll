@@ -16,7 +16,7 @@ import {
   Users
 } from "lucide-react";
 import React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { getPageSlug, sidebarSections as navigationSections } from "../navigation.js";
 import {
@@ -155,25 +155,25 @@ function getSidebarSectionPages(section) {
 }
 
 const newEmployeeFields = [
-  { label: "Employee No.", name: "employeeNo" },
-  { label: "Name", name: "name" },
-  { label: "Father Name", name: "fatherName" },
+  { label: "Employee No.", name: "employeeNo", required: true },
+  { label: "Name", name: "name", required: true },
+  { label: "Father Name", name: "fatherName", required: true },
   { label: "Email", name: "email", type: "email" },
   { label: "Address", name: "address", wide: true },
   { label: "Contact No.", name: "contactNo" },
   { label: "CNIC No.", name: "cnicNo" },
   { label: "Old P. No.", name: "oldPersonnelNo" },
   { label: "Place Of Posting", name: "placeOfPosting" },
-  { label: "Designation Code", name: "designationCode" },
+  { label: "Designation Code", name: "designationCode", required: true },
   { label: "Designation", name: "designation", readOnly: true },
-  { label: "BPS", name: "bps" },
-  { label: "Gaz/NG", name: "gazNg", type: "select", options: ["Gazetted", "Non Gazetted"] },
+  { label: "BPS", name: "bps", required: true },
+  { label: "Gaz/NG", name: "gazNg", type: "select", options: ["Gazetted", "Non Gazetted"], required: true },
   { label: "D.O.B.", name: "dateOfBirth", type: "date" },
-  { label: "Date Of Joining", name: "dateOfJoining", type: "date" },
+  { label: "Date Of Joining", name: "dateOfJoining", type: "date", required: true },
   { label: "Prior Employer Tax Credit", name: "priorEmployerTaxCredit", type: "number" },
-  { label: "Department Code", name: "departmentCode" },
+  { label: "Department Code", name: "departmentCode", required: true },
   { label: "Department", name: "department", readOnly: true },
-  { label: "Service Type", name: "serviceType", type: "select", options: ["Regular", "Contract", "Adhoc"] },
+  { label: "Service Type", name: "serviceType", type: "select", options: ["Regular", "Contract", "Adhoc"], required: true },
   { label: "Bank Code", name: "bankCode" },
   { label: "Bank", name: "bank", readOnly: true },
   { label: "Branch Code", name: "bankBranchCode" },
@@ -188,6 +188,7 @@ const newEmployeeFields = [
 ];
 
 const newEmployeeFieldMap = Object.fromEntries(newEmployeeFields.map((field) => [field.name, field]));
+const requiredNewEmployeeFields = newEmployeeFields.filter((field) => field.required);
 
 const employeeFormSections = [
   {
@@ -217,9 +218,9 @@ function EmployeeFormField({ field, value, onChange, onKeyDown, onGenerateEmploy
 
   return (
     <label className={wrapperClassName}>
-      <span>{field.label}</span>
+      <span>{field.label}{required ? " *" : ""}</span>
       {field.type === "select" ? (
-        <select name={field.name} value={value} onChange={onChange} disabled={disabled}>
+        <select name={field.name} value={value} onChange={onChange} disabled={disabled} required={required}>
           <option value="">Select</option>
           {field.options.map((option) => (
             <option value={option} key={option}>{option}</option>
@@ -755,6 +756,21 @@ function NewEmployeeEntryForm({ onSaved }) {
       return;
     }
 
+    const missingFields = requiredNewEmployeeFields
+      .filter((field) => !String(form[field.name] || "").trim())
+      .map((field) => field.label);
+
+    if (missingFields.length) {
+      setStatus({ type: "error", message: `Please fill required fields: ${missingFields.join(", ")}.` });
+      return;
+    }
+
+    const lookupErrors = [departmentStatus, designationStatus, bankStatus, branchStatus].filter(Boolean);
+    if (lookupErrors.length) {
+      setStatus({ type: "error", message: lookupErrors.join(" ") });
+      return;
+    }
+
     setSaving(true);
     setStatus({ type: "", message: "" });
 
@@ -816,7 +832,7 @@ function NewEmployeeEntryForm({ onSaved }) {
         <span>Employee registration</span>
       </div>
 
-      <form className="employee-form" onSubmit={handleSubmit} onReset={handleReset}>
+      <form className="employee-form" onSubmit={handleSubmit} onReset={handleReset} noValidate>
         {employeeFormSections.map((section) => (
           <fieldset className="employee-form-section" key={section.title}>
             <legend>{section.title}</legend>
@@ -836,7 +852,7 @@ function NewEmployeeEntryForm({ onSaved }) {
                     onChange={updateField}
                     onKeyDown={(event) => handleCodeFieldKeyDown(event, field.name)}
                     onGenerateEmployeeNo={field.name === "employeeNo" ? handleGenerateEmployeeNo : null}
-                    required={field.name === "employeeNo" || field.name === "name"}
+                    required={Boolean(field.required)}
                     disabled={field.name === "bankBranchCode" && !form.bankCode}
                   />
                 );
@@ -4410,11 +4426,13 @@ function PayAllowancesEntry() {
   const [activeAllowanceRowIndex, setActiveAllowanceRowIndex] = useState(0);
   const [wageCodeSearch, setWageCodeSearch] = useState("");
   const [isWageCodeLookupOpen, setIsWageCodeLookupOpen] = useState(false);
+  const [activeWageCodeIndex, setActiveWageCodeIndex] = useState(0);
   const [showAllowanceSaved, setShowAllowanceSaved] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [loading, setLoading] = useState(false);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [saving, setSaving] = useState(false);
+  const allowanceAmountRefs = useRef([]);
   const today = new Date().toISOString().slice(0, 10);
   const isEmployeeStopped = Boolean(employee?.stopDate && employee.stopDate <= today);
   const employeeSearchTerm = employeeCode.trim().toLowerCase();
@@ -4476,6 +4494,7 @@ function PayAllowancesEntry() {
           .some((value) => String(value).toLowerCase().includes(wageCodeSearch.trim().toLowerCase()))
       )
     : allowanceCodes;
+  const activeWageCode = filteredAllowanceCodes[activeWageCodeIndex] || filteredAllowanceCodes[0] || null;
 
   const findAllowanceCode = (value) => {
     const cleanValue = String(value || "").trim().toLowerCase();
@@ -4519,11 +4538,19 @@ function PayAllowancesEntry() {
       setStatus({ type: "success", message: "Employee detail loaded." });
     } catch (error) {
       setEmployee(null);
-      setAllowances(defaultAllowanceRows);
+      setAllowances([]);
       setStatus({ type: "error", message: error.message });
     } finally {
       setLoading(false);
     }
+  };
+
+  const updateEmployeeSearch = (value) => {
+    setEmployeeCode(value);
+    setEmployee(null);
+    setAllowances([]);
+    setIsWageCodeLookupOpen(false);
+    setShowAllowanceSaved(false);
   };
 
   const handleEmployeeCodeKeyDown = (event) => {
@@ -4555,6 +4582,10 @@ function PayAllowancesEntry() {
   };
 
   const applyAllowanceCode = (rowIndex, wageCode) => {
+    if (!wageCode) {
+      return;
+    }
+
     setAllowances((current) =>
       current.map((row, index) =>
         index === rowIndex
@@ -4565,14 +4596,31 @@ function PayAllowancesEntry() {
     setActiveAllowanceRowIndex(rowIndex);
     setIsWageCodeLookupOpen(false);
     setWageCodeSearch("");
+    setActiveWageCodeIndex(0);
+    window.setTimeout(() => {
+      const amountInput = allowanceAmountRefs.current[rowIndex];
+      amountInput?.focus();
+      amountInput?.select?.();
+    }, 0);
   };
 
   const openWageCodeLookup = (rowIndex = activeAllowanceRowIndex) => {
+    if (!employee) {
+      setStatus({ type: "error", message: "Load an employee before selecting allowance codes." });
+      return;
+    }
+
     setActiveAllowanceRowIndex(rowIndex);
+    setActiveWageCodeIndex(0);
     setIsWageCodeLookupOpen(true);
   };
 
   const updateAllowance = (rowIndex, field, value) => {
+    if (!employee) {
+      setStatus({ type: "error", message: "Load an employee before editing allowances." });
+      return;
+    }
+
     setAllowances((current) =>
       current.map((row, index) => {
         if (index !== rowIndex) {
@@ -4599,7 +4647,35 @@ function PayAllowancesEntry() {
     }
   };
 
+  const handleWageCodeLookupKeyDown = (event) => {
+    if (!filteredAllowanceCodes.length) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveWageCodeIndex((current) => Math.min(current + 1, filteredAllowanceCodes.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveWageCodeIndex((current) => Math.max(current - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyAllowanceCode(activeAllowanceRowIndex, activeWageCode);
+    }
+  };
+
   const addAllowanceRow = () => {
+    if (!employee) {
+      setStatus({ type: "error", message: "Load an employee before adding allowance rows." });
+      return;
+    }
+
     setAllowances((current) => [
       ...current,
       {
@@ -4649,6 +4725,10 @@ function PayAllowancesEntry() {
   }, []);
 
   useEffect(() => {
+    setActiveWageCodeIndex(0);
+  }, [wageCodeSearch, isWageCodeLookupOpen]);
+
+  useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === "F1") {
         event.preventDefault();
@@ -4675,7 +4755,7 @@ function PayAllowancesEntry() {
           <input
             type="text"
             value={employeeCode}
-            onChange={(event) => setEmployeeCode(event.target.value)}
+            onChange={(event) => updateEmployeeSearch(event.target.value)}
             onKeyDown={handleEmployeeCodeKeyDown}
             placeholder="Search by employee code or name"
             autoComplete="off"
@@ -4706,129 +4786,138 @@ function PayAllowancesEntry() {
         <p className={`form-status ${status.type || "neutral"}`}>{status.message}</p>
       ) : null}
 
-      <div className="allowance-details">
-        <label>
-          <span>Name</span>
-          <input readOnly value={employee?.name || ""} />
-        </label>
-        <label>
-          <span>Place Of Posting</span>
-          <input readOnly value={employee?.placeOfPosting || ""} />
-        </label>
-        <label>
-          <span>Service Type</span>
-          <input readOnly value={employee?.serviceType || ""} />
-        </label>
-        <label>
-          <span>Designation</span>
-          <input readOnly value={employee?.designation || ""} />
-        </label>
-        <label>
-          <span>BPS</span>
-          <input readOnly value={employee?.bps || ""} />
-        </label>
-        <label>
-          <span>Department</span>
-          <input readOnly value={employee?.department || ""} />
-        </label>
-        <label>
-          <span>Gaz/NG</span>
-          <input readOnly value={employee?.gazNg || ""} />
-        </label>
-      </div>
+      {!employee ? (
+        <p className="form-status neutral">Select and load an employee to view or add pay allowances.</p>
+      ) : (
+        <>
+          <div className="allowance-details">
+            <label>
+              <span>Name</span>
+              <input readOnly value={employee?.name || ""} />
+            </label>
+            <label>
+              <span>Place Of Posting</span>
+              <input readOnly value={employee?.placeOfPosting || ""} />
+            </label>
+            <label>
+              <span>Service Type</span>
+              <input readOnly value={employee?.serviceType || ""} />
+            </label>
+            <label>
+              <span>Designation</span>
+              <input readOnly value={employee?.designation || ""} />
+            </label>
+            <label>
+              <span>BPS</span>
+              <input readOnly value={employee?.bps || ""} />
+            </label>
+            <label>
+              <span>Department</span>
+              <input readOnly value={employee?.department || ""} />
+            </label>
+            <label>
+              <span>Gaz/NG</span>
+              <input readOnly value={employee?.gazNg || ""} />
+            </label>
+          </div>
 
-      <div className="allowance-summary">
-        <div>
-          <span>Gross Pay</span>
-          <strong>PKR {activeSalarySummary.grossPay.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>Deduction</span>
-          <strong>PKR {activeSalarySummary.deductions.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>Total After Deduction</span>
-          <strong>PKR {totalAfterDeduction.toLocaleString()}</strong>
-        </div>
-        <p>Expired allowance rows are not included in employee salary.</p>
-        {isEmployeeStopped ? (
-          <p>Employee stopped on {formatAllowanceStopDate(employee.stopDate)}; salary and allowances are stopped.</p>
-        ) : null}
-      </div>
+          <div className="allowance-summary">
+            <div>
+              <span>Gross Pay</span>
+              <strong>PKR {activeSalarySummary.grossPay.toLocaleString()}</strong>
+            </div>
+            <div>
+              <span>Deduction</span>
+              <strong>PKR {activeSalarySummary.deductions.toLocaleString()}</strong>
+            </div>
+            <div>
+              <span>Total After Deduction</span>
+              <strong>PKR {totalAfterDeduction.toLocaleString()}</strong>
+            </div>
+            <p>Expired allowance rows are not included in employee salary.</p>
+            {isEmployeeStopped ? (
+              <p>Employee stopped on {formatAllowanceStopDate(employee.stopDate)}; salary and allowances are stopped.</p>
+            ) : null}
+          </div>
 
-      <div className="allowance-table-wrap">
-        <table className="allowance-table">
-          <thead>
-            <tr>
-              <th>Sr #</th>
-              <th>Code</th>
-              <th>Description</th>
-              <th>Amount</th>
-              <th>Upto</th>
-              <th>Status</th>
-              <th>Delete</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allowances.map((row, index) => (
-              <tr className={!isAllowanceActive(row) ? "expired-allowance" : ""} key={`${row.srNo}-${index}`}>
-                <td>{index + 1}</td>
-                <td>
-                  <input
-                    value={row.allowanceCode}
-                    onFocus={() => setActiveAllowanceRowIndex(index)}
-                    onKeyDown={(event) => handleAllowanceCodeKeyDown(event, index)}
-                    onChange={(event) => updateAllowance(index, "allowanceCode", event.target.value)}
-                    placeholder="F1"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={row.description || ""}
-                    onChange={(event) => updateAllowance(index, "description", event.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    value={row.amount}
-                    onChange={(event) => updateAllowance(index, "amount", event.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="date"
-                    value={row.upto || ""}
-                    onChange={(event) => updateAllowance(index, "upto", event.target.value)}
-                  />
-                </td>
-                <td>
-                  <span className={isAllowanceActive(row) ? "allowance-status active" : "allowance-status expired"}>
-                    {isAllowanceActive(row) ? "Active" : "Expired"}
-                  </span>
-                </td>
-                <td>
-                  <button
-                    className="allowance-delete-button"
-                    type="button"
-                    onClick={() => removeAllowanceRow(index)}
-                    title="Delete allowance row"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="allowance-table-wrap">
+            <table className="allowance-table">
+              <thead>
+                <tr>
+                  <th>Sr #</th>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Upto</th>
+                  <th>Status</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allowances.map((row, index) => (
+                  <tr className={!isAllowanceActive(row) ? "expired-allowance" : ""} key={`${row.srNo}-${index}`}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <input
+                        value={row.allowanceCode}
+                        onFocus={() => setActiveAllowanceRowIndex(index)}
+                        onKeyDown={(event) => handleAllowanceCodeKeyDown(event, index)}
+                        onChange={(event) => updateAllowance(index, "allowanceCode", event.target.value)}
+                        placeholder="F1"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.description || ""}
+                        onChange={(event) => updateAllowance(index, "description", event.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        value={row.amount}
+                        ref={(node) => {
+                          allowanceAmountRefs.current[index] = node;
+                        }}
+                        onChange={(event) => updateAllowance(index, "amount", event.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        value={row.upto || ""}
+                        onChange={(event) => updateAllowance(index, "upto", event.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <span className={isAllowanceActive(row) ? "allowance-status active" : "allowance-status expired"}>
+                        {isAllowanceActive(row) ? "Active" : "Expired"}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="allowance-delete-button"
+                        type="button"
+                        onClick={() => removeAllowanceRow(index)}
+                        title="Delete allowance row"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="allowance-actions">
-        <button type="button" onClick={addAllowanceRow}>Add Record</button>
-        <button type="button" onClick={saveAllowances} disabled={saving}>
-          {saving ? "Saving..." : "Save Allowances"}
-        </button>
-      </div>
+          <div className="allowance-actions">
+            <button type="button" onClick={addAllowanceRow}>Add Record</button>
+            <button type="button" onClick={saveAllowances} disabled={saving}>
+              {saving ? "Saving..." : "Save Allowances"}
+            </button>
+          </div>
+        </>
+      )}
 
       {isWageCodeLookupOpen ? (
         <div className="modal-backdrop soft-modal-backdrop no-print" role="dialog" aria-modal="true" aria-label="Wage code lookup">
@@ -4844,12 +4933,7 @@ function PayAllowancesEntry() {
               type="search"
               value={wageCodeSearch}
               onChange={(event) => setWageCodeSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && filteredAllowanceCodes.length) {
-                  event.preventDefault();
-                  applyAllowanceCode(activeAllowanceRowIndex, filteredAllowanceCodes[0]);
-                }
-              }}
+              onKeyDown={handleWageCodeLookupKeyDown}
               placeholder="Search code or description"
               autoFocus
             />
@@ -4863,10 +4947,12 @@ function PayAllowancesEntry() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAllowanceCodes.map((wageCode) => (
+                  {filteredAllowanceCodes.map((wageCode, index) => (
                     <tr
                       key={wageCode.code}
+                      className={index === activeWageCodeIndex ? "lookup-selected-row" : ""}
                       onClick={() => applyAllowanceCode(activeAllowanceRowIndex, wageCode)}
+                      onMouseEnter={() => setActiveWageCodeIndex(index)}
                       tabIndex={0}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
