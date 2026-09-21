@@ -4433,6 +4433,7 @@ function PayAllowancesEntry() {
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [saving, setSaving] = useState(false);
   const allowanceAmountRefs = useRef([]);
+  const wageCodeRowRefs = useRef([]);
   const today = new Date().toISOString().slice(0, 10);
   const isEmployeeStopped = Boolean(employee?.stopDate && employee.stopDate <= today);
   const employeeSearchTerm = employeeCode.trim().toLowerCase();
@@ -4729,6 +4730,16 @@ function PayAllowancesEntry() {
   }, [wageCodeSearch, isWageCodeLookupOpen]);
 
   useEffect(() => {
+    if (!isWageCodeLookupOpen) {
+      return;
+    }
+
+    wageCodeRowRefs.current[activeWageCodeIndex]?.scrollIntoView({
+      block: "nearest"
+    });
+  }, [activeWageCodeIndex, filteredAllowanceCodes.length, isWageCodeLookupOpen]);
+
+  useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === "F1") {
         event.preventDefault();
@@ -4950,6 +4961,9 @@ function PayAllowancesEntry() {
                   {filteredAllowanceCodes.map((wageCode, index) => (
                     <tr
                       key={wageCode.code}
+                      ref={(node) => {
+                        wageCodeRowRefs.current[index] = node;
+                      }}
                       className={index === activeWageCodeIndex ? "lookup-selected-row" : ""}
                       onClick={() => applyAllowanceCode(activeAllowanceRowIndex, wageCode)}
                       onMouseEnter={() => setActiveWageCodeIndex(index)}
