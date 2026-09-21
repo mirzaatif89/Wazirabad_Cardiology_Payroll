@@ -4451,7 +4451,7 @@ function PayAllowancesEntry() {
         )
         .slice(0, 8)
     : [];
-  const showEmployeeMatches = Boolean(employeeSearchTerm && employeeMatches.length);
+  const showEmployeeMatches = Boolean(!employee && employeeSearchTerm && employeeMatches.length);
   const formatAllowanceStopDate = (value) => {
     const [year, month, day] = String(value || "").slice(0, 10).split("-");
     return year && month && day ? `${day}/${month}/${year}` : String(value || "");
